@@ -6,33 +6,6 @@ Also has a built-in chromatic tuner with open-string quick-picks for G / D / A /
 
 ![demo](./documents/media/demo.png)
 
-## Features
-
-### Score practice
-- **Load** `.musicxml` / `.xml` / `.mxl` scores. MXL is a zipped MusicXML container, and OpenSheetMusicDisplay handles it natively.
-- **Score display** with a live cursor that highlights the current target note.
-- **Section practice**: restrict practice to a measure range; the cursor loops within it.
-- **Long-press to jump**: press and hold any point on the score (~450 ms, mouse / touch / pen) to move the cursor to the nearest note.
-- **Auto-advance** when the detected pitch sits within the tolerance band for a configurable hold time.
-
-### Tuner
-- **Built-in chromatic tuner** with a large letter+octave display, signed cents readout, and a ±50 ¢ needle bar.
-- **Open-string quick-pick buttons** (G3 / D4 / A4 / E5): click one to lock the tuner to that string and get *Wrong note* warnings if you bow the wrong one. Auto-disabled while a score is loaded.
-
-### Pitch detection
-- **Real-time pitch detection** via the Web Audio API plus the [pitchy](https://github.com/ianprime0509/pitchy) autocorrelation detector.
-- **Dropout smoothing**: short dips in signal clarity (bow changes, string crossings) don't blank the display. The last reading persists for up to 500 ms.
-
-### Visual feedback
-- **Numeric tuner panel**: detected note (letter + octave), frequency, signed cents, status. The whole panel re-tints green (in tune) / orange (sharp) / blue (flat) / red (wrong note), giving you at-a-glance feedback from across the room.
-- **Pitch bar** with a translucent tolerance band and a needle that turns green when in tune.
-- **On-score "ghost notehead"** anchored to the OSMD cursor, drifting up/down by the actual semitone deviation so you can see *where* on the staff your pitch is landing relative to the target.
-
-### Customization
-- **Tolerance** (±cents), **Hold time** (ms), and **A4 reference** (Hz) are all editable live.
-- **Reset defaults** button restores tolerance / hold / A4 in one click.
-- Responsive **floating control bar** that pins below the topbar on wide screens (≥1100 px) so settings stay reachable while you scroll through a long score.
-
 ## Run
 
 The app is a plain static site with no build step. Because browsers block `getUserMedia` and ES module loading on `file://`, serve it over HTTP.
@@ -80,6 +53,33 @@ Then open `http://localhost:8000` (or `http://127.0.0.1:8000`) in a Chromium-bas
 | Standard (default) | ±10 ¢ | 150 ms |
 | Advanced | ±5 ¢ | 100 ms |
 | Near performance tempo | ±5 ¢ | 30–60 ms |
+
+## Features
+
+### Score practice
+- **Load** `.musicxml` / `.xml` / `.mxl` scores. MXL is a zipped MusicXML container, and OpenSheetMusicDisplay handles it natively.
+- **Score display** with a live cursor that highlights the current target note.
+- **Section practice**: restrict practice to a measure range; the cursor loops within it.
+- **Long-press to jump**: press and hold any point on the score (~450 ms, mouse / touch / pen) to move the cursor to the nearest note.
+- **Auto-advance** when the detected pitch sits within the tolerance band for a configurable hold time.
+
+### Tuner
+- **Built-in chromatic tuner** with a large letter+octave display, signed cents readout, and a ±50 ¢ needle bar.
+- **Open-string quick-pick buttons** (G3 / D4 / A4 / E5): click one to lock the tuner to that string and get *Wrong note* warnings if you bow the wrong one. Auto-disabled while a score is loaded.
+
+### Pitch detection
+- **Real-time pitch detection** via the Web Audio API plus the [pitchy](https://github.com/ianprime0509/pitchy) autocorrelation detector.
+- **Dropout smoothing**: short dips in signal clarity (bow changes, string crossings) don't blank the display. The last reading persists for up to 500 ms.
+
+### Visual feedback
+- **Numeric tuner panel**: detected note (letter + octave), frequency, signed cents, status. The whole panel re-tints green (in tune) / orange (sharp) / blue (flat) / red (wrong note), giving you at-a-glance feedback from across the room.
+- **Pitch bar** with a translucent tolerance band and a needle that turns green when in tune.
+- **On-score "ghost notehead"** anchored to the OSMD cursor, drifting up/down by the actual semitone deviation so you can see *where* on the staff your pitch is landing relative to the target.
+
+### Customization
+- **Tolerance** (±cents), **Hold time** (ms), and **A4 reference** (Hz) are all editable live.
+- **Reset defaults** button restores tolerance / hold / A4 in one click.
+- Responsive **floating control bar** that pins below the topbar on wide screens (≥1100 px) so settings stay reachable while you scroll through a long score.
 
 ## Tech notes
 
