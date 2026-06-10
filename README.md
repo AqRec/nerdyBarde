@@ -114,3 +114,14 @@ intonation/
 - No tempo / metronome, since this is an intonation tool rather than a rhythm tool.
 - Autocorrelation can occasionally report a pitch one octave low for thin signals; the *Wrong note* warning flags this, but it may briefly flicker before settling.
 - Detection latency puts a soft floor around 30–50 ms per note, so hold times below that won't advance reliably.
+
+## Acknowledgments
+
+This app stands on the shoulders of two great open-source libraries, loaded at runtime from [esm.sh](https://esm.sh):
+
+- **[OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay)** for MusicXML rendering and the practice cursor. Copyright (c) 2019 PhonicScore. Licensed under the [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause) license.
+- **[pitchy](https://github.com/ianprime0509/pitchy)** for autocorrelation-based pitch detection. Copyright Ian Johnson. Licensed under the [0BSD](https://opensource.org/licenses/0BSD) license.
+
+## License
+
+[MIT](LICENSE) (c) 2026 AqRec
