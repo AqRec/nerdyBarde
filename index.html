@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nerdyIntonation</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>nerdyIntonation</h1>
+    <div class="topbar-actions">
+      <label class="file-btn">
+        <input type="file" id="file-input" accept=".musicxml,.xml,.mxl" hidden />
+        Load Score
+      </label>
+      <button id="mic-btn" class="primary">Enable Microphone</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel tuner-panel">
+      <!-- Open-string quick-pick buttons (violin: G3 D4 A4 E5).
+           Clicking one locks the tuner to that pitch; clicking again unlocks. -->
+      <div class="string-picker" role="group" aria-label="Open-string tuning">
+        <span class="string-picker-label">Tune string</span>
+        <div class="string-picker-buttons">
+          <button type="button" class="string-btn" data-midi="55" title="G string (G3, 196.00 Hz)">G<span class="string-btn-sub">3</span></button>
+          <button type="button" class="string-btn" data-midi="62" title="D string (D4, 293.66 Hz)">D<span class="string-btn-sub">4</span></button>
+          <button type="button" class="string-btn" data-midi="69" title="A string (A4, 440.00 Hz)">A<span class="string-btn-sub">4</span></button>
+          <button type="button" class="string-btn" data-midi="76" title="E string (E5, 659.26 Hz)">E<span class="string-btn-sub">5</span></button>
+        </div>
+      </div>
+
+      <!-- Optional target reference, shown when a score OR string is active. -->
+      <div class="tuner-meta" id="tuner-meta" hidden>
+        <span class="tuner-meta-label" id="tuner-meta-label">Target</span>
+        <span id="target-note" class="tuner-meta-note">—</span>
+        <span class="tuner-meta-sep">·</span>
+        <span id="target-freq" class="tuner-meta-freq">— Hz</span>
+      </div>
+
+      <!-- Main tuner readout: big note letter + octave, plus details. -->
+      <div class="tuner-main">
+        <div class="tuner-note-display">
+          <span id="detected-note-letter" class="tuner-letter">—</span>
+          <span id="detected-note-octave" class="tuner-octave"></span>
+        </div>
+        <div class="tuner-details">
+          <div id="detected-freq" class="tuner-freq">— Hz</div>
+          <div class="tuner-cents-row">
+            <span id="deviation-cents" class="tuner-cents">— ¢</span>
+            <span id="deviation-status" class="tuner-status">Idle</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- The needle bar (carried over from the old design; same IDs). -->
+      <div class="pitch-bar-wrap">
+        <div class="pitch-bar">
+          <div class="pitch-bar-tolerance" id="tolerance-zone"></div>
+          <div class="pitch-bar-center"></div>
+          <div class="pitch-bar-needle" id="pitch-needle"></div>
+          <div class="pitch-bar-ticks">
+            <span>-50¢</span><span>-25¢</span><span>0</span><span>+25¢</span><span>+50¢</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Kept for compatibility (id referenced by JS); not visible. -->
+      <span id="detected-note" hidden>—</span>
+    </section>
+
+    <section class="panel controls-panel">
+      <div class="control-group">
+        <label title="How far (in cents) the played pitch may deviate from the target and still count as 'in tune'. ±10¢ is a normal player target; loosen it for beginners."><span class="label-long">Tolerance (±cents)</span><span class="label-short">Tol&nbsp;¢</span>
+          <input type="number" id="tolerance" min="1" max="50" step="1" value="10" />
+        </label>
+        <label title="How long the in-tune pitch must be held before the cursor advances. Lower this when practicing faster passages; raise it to force a steadier tone."><span class="label-long">Hold time (ms)</span><span class="label-short">Hold&nbsp;ms</span>
+          <input type="number" id="hold-time" min="30" max="2000" step="10" value="150" />
+        </label>
+        <label title="Concert pitch reference. 440 Hz is standard; many orchestras use 442; baroque tuning is around 415."><span class="label-long">A4 reference (Hz)</span><span class="label-short">A4&nbsp;Hz</span>
+          <input type="number" id="a4-ref" min="415" max="466" step="1" value="440" />
+        </label>
+        <button id="reset-defaults" title="Reset tolerance, hold time, and A4 reference to their default values."><span class="label-long">Reset defaults</span><span class="label-short">Reset</span></button>
+      </div>
+
+      <div class="control-group section-control">
+        <label><span class="label-long">From measure</span><span class="label-short">From</span>
+          <input type="number" id="section-start" min="1" value="1" />
+        </label>
+        <label><span class="label-long">To measure</span><span class="label-short">To</span>
+          <input type="number" id="section-end" min="1" value="1" />
+        </label>
+        <button id="apply-section" title="Restrict practice to the chosen measure range."><span class="label-long">Apply Section</span><span class="label-short">Apply</span></button>
+        <button id="clear-section" title="Practice the whole score.">Clear</button>
+      </div>
+
+      <div class="control-group nav-control">
+        <button id="reset-btn" title="Jump back to the start of the section (R)."><span class="label-long">Restart Section</span><span class="label-short">⟲</span></button>
+        <button id="prev-btn" title="Previous note (←)"><span class="label-long">◀ Prev</span><span class="label-short">◀</span></button>
+        <button id="next-btn" title="Next note (→)"><span class="label-long">Next ▶</span><span class="label-short">▶</span></button>
+        <button id="skip-btn" title="Skip the current note (rests are skipped automatically).">Skip</button>
+      </div>
+    </section>
+
+    <section class="panel score-panel">
+      <div id="score-placeholder" class="placeholder">
+        Load a <code>.musicxml</code> or <code>.mxl</code> file to begin.
+      </div>
+      <div id="score-container"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="status-msg">Ready.</span>
+  </footer>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

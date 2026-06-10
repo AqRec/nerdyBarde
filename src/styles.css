@@ -1,0 +1,512 @@
+:root {
+  --bg: #0f1115;
+  --panel: #181b22;
+  --panel-2: #20242d;
+  --border: #2a2f3a;          /* Subtle separators (panel edges, etc.) */
+  --border-strong: #6b7790;   /* Visible borders for interactive controls. */
+  --border-hover: #8a96b0;    /* Hover state for the same. */
+  --text: #e8eaed;
+  --muted: #9aa3b2;
+  --accent: #4f8cff;
+  --accent-2: #6cffb0;
+  --warn: #ffb86c;
+  --bad: #ff6b6b;
+  --good: #6cffb0;
+  --shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar h1 {
+  font-size: 1.1rem;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+.topbar-actions { display: flex; gap: 8px; }
+
+button, .file-btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+button:hover, .file-btn:hover { background: #2a3140; border-color: var(--border-hover); }
+button:active { transform: translateY(1px); }
+button:focus-visible, .file-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.35);
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+button.primary:hover { background: #6098ff; border-color: #6098ff; }
+button.primary.active { background: var(--good); border-color: var(--good); color: #0f1115; }
+
+main {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* ----------------------------- Tuner panel ----------------------------- */
+
+.tuner-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Open-string quick-pick (violin: G3 D4 A4 E5). */
+.string-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.string-picker-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.string-picker-buttons {
+  display: flex;
+  gap: 6px;
+}
+.string-btn {
+  /* Override generic button defaults so the picker reads as a chip group. */
+  min-width: 52px;
+  padding: 6px 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.string-btn .string-btn-sub {
+  font-size: 0.7em;
+  font-weight: 500;
+  vertical-align: super;
+  margin-left: 1px;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+.string-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.25);
+}
+.string-btn.active .string-btn-sub { color: rgba(255, 255, 255, 0.85); }
+.string-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Small "Target: D#4 · 311.13 Hz" row, only shown when a score is loaded. */
+.tuner-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.tuner-meta[hidden] { display: none; }
+.tuner-meta-label {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 0.7rem;
+}
+.tuner-meta-note {
+  color: var(--accent-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tuner-meta-sep { color: var(--border-strong); }
+.tuner-meta-freq { font-variant-numeric: tabular-nums; }
+
+/* Big note display + frequency / cents / status, side-by-side. */
+.tuner-main {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 4px;
+  min-height: 88px;
+}
+.tuner-note-display {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 130px;
+  justify-content: center;
+}
+.tuner-letter {
+  font-size: 4.2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  transition: color 0.15s, text-shadow 0.15s;
+}
+.tuner-octave {
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.15s;
+}
+.tuner-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.tuner-freq {
+  font-size: 1.4rem;
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.tuner-cents-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tuner-cents {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--warn);
+  font-variant-numeric: tabular-nums;
+}
+.tuner-status {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+/* Tuning-state colors. The note letter, cents readout and status all share
+   the same class names ("in-tune" / "sharp" / "flat" / "error") so a single
+   className swap on .tuner-panel re-tints everything. */
+.tuner-panel.in-tune .tuner-letter,
+.tuner-panel.in-tune .tuner-octave { color: var(--good); text-shadow: 0 0 18px rgba(108,255,176,0.35); }
+.tuner-panel.in-tune .tuner-cents  { color: var(--good); }
+.tuner-panel.in-tune .tuner-status { color: var(--good); }
+
+.tuner-panel.sharp .tuner-letter,
+.tuner-panel.sharp .tuner-octave  { color: var(--warn); }
+.tuner-panel.sharp .tuner-cents   { color: var(--warn); }
+.tuner-panel.sharp .tuner-status  { color: var(--warn); }
+
+.tuner-panel.flat .tuner-letter,
+.tuner-panel.flat .tuner-octave   { color: #6cb5ff; }
+.tuner-panel.flat .tuner-cents    { color: #6cb5ff; }
+.tuner-panel.flat .tuner-status   { color: #6cb5ff; }
+
+.tuner-panel.error .tuner-letter,
+.tuner-panel.error .tuner-octave  { color: var(--bad); }
+.tuner-panel.error .tuner-cents   { color: var(--bad); }
+.tuner-panel.error .tuner-status  { color: var(--bad); }
+
+.tuner-panel.listening .tuner-status { color: var(--muted); }
+
+.pitch-bar-wrap {
+  padding: 8px 4px 0;
+}
+.pitch-bar {
+  position: relative;
+  height: 56px;
+  background: linear-gradient(90deg,
+    rgba(108,181,255,0.18) 0%,
+    rgba(108,181,255,0.05) 30%,
+    rgba(108,255,176,0.05) 45%,
+    rgba(108,255,176,0.20) 50%,
+    rgba(108,255,176,0.05) 55%,
+    rgba(255,184,108,0.05) 70%,
+    rgba(255,184,108,0.18) 100%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pitch-bar-center {
+  position: absolute;
+  top: 0; bottom: 18px;
+  left: 50%;
+  width: 2px;
+  background: var(--accent-2);
+  transform: translateX(-50%);
+  box-shadow: 0 0 8px var(--accent-2);
+}
+.pitch-bar-tolerance {
+  position: absolute;
+  top: 0; bottom: 18px;
+  background: rgba(108,255,176,0.15);
+  border-left: 1px dashed rgba(108,255,176,0.4);
+  border-right: 1px dashed rgba(108,255,176,0.4);
+}
+.pitch-bar-needle {
+  position: absolute;
+  top: 4px; bottom: 22px;
+  left: 50%;
+  width: 4px;
+  background: var(--accent);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  transition: left 0.06s linear, background 0.1s;
+  box-shadow: 0 0 10px var(--accent);
+}
+.pitch-bar-needle.in-tune { background: var(--good); box-shadow: 0 0 10px var(--good); }
+.pitch-bar-ticks {
+  position: absolute;
+  bottom: 2px; left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.control-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.control-group label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--muted);
+  gap: 4px;
+}
+.control-group input[type="number"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 90px;
+  font-size: 0.95rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.control-group input[type="number"]:hover {
+  border-color: var(--border-hover);
+}
+.control-group input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.35);
+}
+
+/* Label text variants used by the floating-bar layout (see below).
+   Default (narrow / multi-row): show the verbose label, hide the short one. */
+.control-group .label-short { display: none; }
+.control-group .label-long  { display: inline; }
+
+/* Floating control bar: when the viewport is wide enough to fit everything
+   on a single line, collapse the controls-panel into a compact horizontal
+   toolbar pinned just below the topbar. */
+@media (min-width: 1100px) {
+  .controls-panel {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    /* Pin below the ~60 px topbar so the bar stays visible while scrolling
+       through long scores. */
+    position: sticky;
+    top: 62px;
+    z-index: 9;
+    /* "Floating" look: slightly elevated above the score panel. */
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  }
+  .controls-panel .control-group {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  /* Subtle vertical separator between the three logical groups. */
+  .controls-panel .control-group + .control-group {
+    border-left: 1px solid var(--border-strong);
+    padding-left: 10px;
+  }
+  /* Inline label text + input side-by-side. */
+  .controls-panel .control-group label {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    font-size: 0.75rem;
+  }
+  .controls-panel .control-group input[type="number"] {
+    width: 56px;
+    padding: 4px 6px;
+    font-size: 0.85rem;
+  }
+  .controls-panel button {
+    padding: 5px 9px;
+    font-size: 0.8rem;
+  }
+  /* Swap verbose -> short labels in this layout. */
+  .controls-panel .label-long  { display: none; }
+  .controls-panel .label-short { display: inline; }
+}
+
+.score-panel {
+  min-height: 320px;
+  padding: 12px;
+}
+#score-container {
+  background: white;
+  border-radius: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  min-height: 200px;
+  display: none; /* hidden until a score is loaded; JS toggles to block */
+  position: relative; /* anchor for the detected-pitch overlay */
+}
+#score-container.has-score { display: block; }
+
+/* Long-press feedback: while the user is holding pointer-down inside the score,
+   fade the page very slightly so they know the gesture is being captured. */
+#score-container.long-pressing {
+  cursor: progress;
+  transition: filter 0.25s ease-out;
+  filter: brightness(0.94);
+}
+#score-container {
+  cursor: pointer;
+  user-select: none;
+  touch-action: pan-y; /* allow vertical page scroll, capture long-press for us */
+}
+
+/* Live detected-pitch indicator drawn over the score, anchored to the OSMD cursor. */
+.detected-overlay {
+  position: absolute;
+  pointer-events: none;
+  transition: top 0.06s linear, left 0.06s linear, opacity 0.15s;
+  z-index: 5;
+  opacity: 0;
+  /* width/height set inline */
+}
+.detected-overlay.visible { opacity: 1; }
+
+.detected-overlay .ghost-note {
+  position: absolute;
+  left: 50%;
+  width: 16px;
+  height: 12px;
+  margin-left: -8px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #4f8cff;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(79,140,255,0.6);
+  transition: top 0.06s linear, background 0.1s, box-shadow 0.1s;
+}
+.detected-overlay.in-tune .ghost-note {
+  background: #2bbf6f;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 10px rgba(43,191,111,0.8);
+}
+.detected-overlay.sharp .ghost-note { background: #ff8a3d; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(255,138,61,0.6); }
+.detected-overlay.flat  .ghost-note { background: #4f8cff; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(79,140,255,0.6); }
+.detected-overlay.error .ghost-note { background: #e0524a; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(224,82,74,0.6); }
+
+.detected-overlay .ghost-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: -22px;
+  background: rgba(15,17,21,0.92);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.detected-overlay.in-tune .ghost-label { background: #1f6f43; border-color: #2bbf6f; }
+.detected-overlay.error .ghost-label   { background: #7a2a25; border-color: #e0524a; }
+
+/* A faint vertical guide between the cursor center and the ghost note,
+   making the deviation visually obvious. */
+.detected-overlay .ghost-guide {
+  position: absolute;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(79,140,255,0.35);
+  border-radius: 1px;
+}
+.detected-overlay.in-tune .ghost-guide { background: rgba(43,191,111,0.35); }
+.detected-overlay.sharp .ghost-guide   { background: rgba(255,138,61,0.35); }
+.detected-overlay.error .ghost-guide   { background: rgba(224,82,74,0.4); }
+.placeholder {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.placeholder code {
+  background: var(--panel-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+footer {
+  padding: 8px 20px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .feedback-grid { grid-template-columns: 1fr; }
+  .feedback-card .big-note { font-size: 1.8rem; }
+  /* Tuner: stack big note above the details on narrow screens. */
+  .tuner-main { flex-direction: column; align-items: center; gap: 8px; }
+  .tuner-details { align-items: center; text-align: center; }
+  .tuner-letter { font-size: 3.6rem; }
+}

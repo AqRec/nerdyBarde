@@ -1,0 +1,666 @@
+// Main application wiring: UI <-> score <-> pitch tracker.
+
+import { Score } from "./score.js";
+import { PitchTracker, freqToNoteInfo, centsFromTarget, freqToMidi, midiToFreq, midiToNoteName } from "./pitch.js";
+
+const $ = (id) => document.getElementById(id);
+
+const els = {
+  fileInput: $("file-input"),
+  micBtn: $("mic-btn"),
+  // Tuner UI
+  tunerPanel: document.querySelector(".tuner-panel"),
+  tunerMeta: $("tuner-meta"),
+  targetNote: $("target-note"),
+  targetFreq: $("target-freq"),
+  detectedNote: $("detected-note"),           // hidden, kept for compatibility
+  detectedLetter: $("detected-note-letter"),
+  detectedOctave: $("detected-note-octave"),
+  detectedFreq: $("detected-freq"),
+  deviationCents: $("deviation-cents"),
+  deviationStatus: $("deviation-status"),
+  needle: $("pitch-needle"),
+  toleranceZone: $("tolerance-zone"),
+  // Settings
+  tolerance: $("tolerance"),
+  holdTime: $("hold-time"),
+  a4Ref: $("a4-ref"),
+  resetDefaults: $("reset-defaults"),
+  // Section + navigation
+  sectionStart: $("section-start"),
+  sectionEnd: $("section-end"),
+  applySection: $("apply-section"),
+  clearSection: $("clear-section"),
+  resetBtn: $("reset-btn"),
+  prevBtn: $("prev-btn"),
+  nextBtn: $("next-btn"),
+  skipBtn: $("skip-btn"),
+  // Score area + status
+  scorePlaceholder: $("score-placeholder"),
+  scoreContainer: $("score-container"),
+  status: $("status-msg"),
+};
+
+/**
+ * Default values for the user-configurable practice parameters.
+ * The Reset Defaults button restores all of these in one click.
+ */
+const DEFAULTS = Object.freeze({
+  tolerance: 10,   // ±cents
+  holdTime: 150,   // ms
+  a4Ref: 440,      // Hz
+});
+
+const state = {
+  score: null,
+  tracker: new PitchTracker(),
+  inTuneSince: null, // timestamp when current target first became "in tune"
+  lastTarget: null,
+  overlay: null, // detected-pitch overlay element (sibling of the OSMD cursor)
+  tuningString: null, // MIDI number when a string-pick is active, else null
+  lastValidAt: 0, // performance.now() of the last valid pitch sample
+};
+
+/**
+ * How long to keep showing the last valid reading after the signal disappears,
+ * before the tuner falls back to the "Listening…" idle state. Smooths over
+ * short dropouts (bow changes, string crossings) so the readout doesn't flash.
+ */
+const VALID_PERSIST_MS = 500;
+
+function setStatus(msg) { els.status.textContent = msg; }
+
+/* -------------------- detected-pitch overlay on the score -------------------- */
+
+function ensureOverlay() {
+  const cursorEl = state.score && state.score.getCursorElement();
+  if (!cursorEl) return null;
+  // The cursor's offset coordinates are relative to its own offsetParent
+  // (an inner OSMD <div>, not #score-container). To share that coordinate
+  // space, attach our overlay to the same parent and ensure that parent is
+  // a positioning context.
+  const parent = cursorEl.parentElement;
+  if (!parent) return null;
+  // Make sure the parent is a containing block for absolute positioning.
+  const cs = getComputedStyle(parent);
+  if (cs.position === "static") parent.style.position = "relative";
+
+  if (state.overlay && state.overlay.parentElement === parent) return state.overlay;
+  if (state.overlay && state.overlay.parentNode) state.overlay.parentNode.removeChild(state.overlay);
+
+  const root = document.createElement("div");
+  root.className = "detected-overlay";
+  root.innerHTML = `
+    <div class="ghost-guide"></div>
+    <div class="ghost-note"></div>
+    <div class="ghost-label">—</div>
+  `;
+  parent.appendChild(root);
+  state.overlay = root;
+  return root;
+}
+
+function hideOverlay() {
+  if (state.overlay) state.overlay.classList.remove("visible");
+}
+
+/**
+ * Position the overlay relative to the OSMD cursor and update its content.
+ *
+ * Coordinate model
+ * ----------------
+ * The OSMD cursor is a vertical bar that exactly spans the 5-line staff:
+ *   cursor top    = top staff line     (F5 in treble clef)
+ *   cursor bottom = bottom staff line  (E4 in treble clef)
+ *   cursor center = middle staff line  (B4 in treble clef)
+ * So 1 line-spacing = cursorH / 4, and 1 diatonic step (line→space or space→line)
+ * = cursorH / 8.
+ *
+ * Anchoring
+ * ---------
+ * The TARGET note's vertical position is its engraved diatonic position on the
+ * staff (the OSMD Pitch tells us the letter+octave, independent of accidentals).
+ * When the user plays the target exactly, the ghost note sits on top of the
+ * engraved notehead. When they're off-pitch, the ghost moves continuously by
+ * `semitonesFromTarget * (7/12) * diatonicHalfStepPx` — i.e. an octave's worth
+ * of semitone deviation visually corresponds to one octave on the staff
+ * (7 diatonic steps).
+ */
+function paintOverlay({ semitonesFromTarget, labelText, tone }) {
+  const overlay = ensureOverlay();
+  if (!overlay) return;
+  const cursorEl = state.score && state.score.getCursorElement();
+  const step = state.score && state.score.currentStep();
+  if (!cursorEl || !step) { hideOverlay(); return; }
+
+  const cursorTop = cursorEl.offsetTop;
+  const cursorLeft = cursorEl.offsetLeft;
+  const cursorW = cursorEl.offsetWidth || parseFloat(cursorEl.style.width) || 30;
+  const cursorH = cursorEl.offsetHeight || parseFloat(cursorEl.style.height) || 40;
+
+  // Treble clef middle line = B4; diatonic step = 4*7 + 6 = 34 (ISO octaves, C0 = 0).
+  // Violin parts are always treble; fall back to this for unusual scores.
+  const TREBLE_CENTER_DIATONIC = 34;
+  const halfStepPx = cursorH / 8; // pixels per diatonic step (line ↔ adjacent space)
+
+  // Engraved y of the target note inside the cursor box. Higher diatonic step
+  // (e.g. F5) -> smaller y (toward top of cursor).
+  const targetDiatonic = (typeof step.diatonicStep === "number")
+    ? step.diatonicStep
+    : TREBLE_CENTER_DIATONIC;
+  const targetY = cursorH / 2 - (targetDiatonic - TREBLE_CENTER_DIATONIC) * halfStepPx;
+
+  // Continuous chromatic-to-staff scale: one octave (12 semitones) = 7 diatonic
+  // steps. So 1 semitone ≈ (7/12) of a diatonic step. Sharp -> up -> smaller y.
+  const pxPerSemitone = halfStepPx * (7 / 12);
+  const ghostY = targetY - semitonesFromTarget * pxPerSemitone;
+
+  // Overlay box: slightly wider than the cursor; vertical extent generous so the
+  // ghost can sit up to an octave above/below the staff before being clipped.
+  const overlayW = Math.max(cursorW + 16, 40);
+  const overlayLeft = cursorLeft + cursorW / 2 - overlayW / 2;
+  const extraVert = 8 * halfStepPx; // ~1 octave of headroom on each side
+  overlay.style.left = `${overlayLeft}px`;
+  overlay.style.top = `${cursorTop - extraVert}px`;
+  overlay.style.width = `${overlayW}px`;
+  overlay.style.height = `${cursorH + 2 * extraVert}px`;
+
+  // Inner coordinates are relative to the overlay's top, so rebase.
+  const ghostYInOverlay = ghostY + extraVert;
+  const targetYInOverlay = targetY + extraVert;
+
+  const ghost = overlay.querySelector(".ghost-note");
+  ghost.style.top = `${ghostYInOverlay}px`;
+
+  // Guide line: vertical segment between the engraved target position and the ghost.
+  const guide = overlay.querySelector(".ghost-guide");
+  const guideTop = Math.min(targetYInOverlay, ghostYInOverlay);
+  const guideH = Math.abs(ghostYInOverlay - targetYInOverlay);
+  guide.style.top = `${guideTop}px`;
+  guide.style.height = `${guideH}px`;
+
+  // Label: above the ghost when sharp/in-tune, below when flat — never overlapping.
+  const label = overlay.querySelector(".ghost-label");
+  label.textContent = labelText;
+  if (semitonesFromTarget >= 0) {
+    label.style.top = `${ghostYInOverlay - 22}px`;
+  } else {
+    label.style.top = `${ghostYInOverlay + 12}px`;
+  }
+  label.style.bottom = "auto";
+
+  overlay.classList.remove("in-tune", "sharp", "flat", "error");
+  if (tone) overlay.classList.add(tone);
+  overlay.classList.add("visible");
+}
+
+/* ---------------------------- pitch bar (top) ---------------------------- */
+
+function updateToleranceZone() {
+  const tol = clamp(parseFloat(els.tolerance.value) || 10, 1, 50);
+  // Map ±50¢ to 0..100% (center at 50%). Tolerance band width:
+  const halfPct = (tol / 50) * 50; // 50% half-range = 50 cents
+  els.toleranceZone.style.left = `${50 - halfPct}%`;
+  els.toleranceZone.style.width = `${halfPct * 2}%`;
+}
+
+function setNeedle(cents) {
+  const clamped = clamp(cents, -50, 50);
+  const pct = 50 + (clamped / 50) * 50;
+  els.needle.style.left = `${pct}%`;
+}
+
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+/* ------------------------------- Tuner UI ------------------------------- */
+
+/**
+ * Split a sharp-style note name like "A#4" into a pretty letter ("A♯") and
+ * its octave ("4"). Returns { letter: "—", octave: "" } for the empty state.
+ */
+function splitNoteName(name) {
+  if (!name || name === "—") return { letter: "—", octave: "" };
+  const m = /^([A-G])(#?)(-?\d+)$/.exec(name);
+  if (!m) return { letter: name, octave: "" };
+  const letter = m[2] === "#" ? `${m[1]}\u266F` : m[1];   // ♯
+  return { letter, octave: m[3] };
+}
+
+function setTunerTone(tone) {
+  // tone ∈ "in-tune" | "sharp" | "flat" | "error" | "listening" | null
+  els.tunerPanel.classList.remove("in-tune", "sharp", "flat", "error", "listening");
+  if (tone) els.tunerPanel.classList.add(tone);
+}
+
+function setTunerNote(name) {
+  const { letter, octave } = splitNoteName(name);
+  els.detectedLetter.textContent = letter;
+  els.detectedOctave.textContent = octave;
+  els.detectedNote.textContent = name || "—";
+}
+
+function setTunerIdle(message) {
+  setTunerNote("—");
+  els.detectedFreq.textContent = "— Hz";
+  els.deviationCents.textContent = "— ¢";
+  els.deviationStatus.textContent = message;
+  setTunerTone(message === "Listening…" ? "listening" : null);
+  els.needle.classList.remove("in-tune");
+  setNeedle(0);
+}
+
+function refreshTargetDisplay() {
+  const hasScore = !!state.score && state.score.steps.length > 0;
+  const a4 = parseFloat(els.a4Ref.value) || 440;
+
+  // The string-picker is mutually exclusive with score practice. Hide the
+  // string buttons' active state when a score is in charge so the UI doesn't
+  // suggest two simultaneous targets.
+  const stringButtons = document.querySelectorAll(".string-btn");
+  stringButtons.forEach(b => { b.disabled = hasScore; if (hasScore) b.classList.remove("active"); });
+  if (hasScore) state.tuningString = null;
+
+  if (hasScore) {
+    els.tunerMeta.hidden = false;
+    document.getElementById("tuner-meta-label").textContent = "Target";
+    const step = state.score.currentStep();
+    if (!step) {
+      els.targetNote.textContent = "—";
+      els.targetFreq.textContent = "— Hz";
+      return;
+    }
+    const f = midiToFreq(step.midi, a4);
+    const split = splitNoteName(step.name);
+    els.targetNote.textContent = split.letter + split.octave;
+    els.targetFreq.textContent = `${f.toFixed(2)} Hz`;
+    if (state.lastTarget !== step.stepIndex) {
+      state.inTuneSince = null;
+      state.lastTarget = step.stepIndex;
+    }
+    return;
+  }
+
+  if (state.tuningString != null) {
+    els.tunerMeta.hidden = false;
+    document.getElementById("tuner-meta-label").textContent = "Tune string";
+    const name = midiToNoteName(state.tuningString);
+    const split = splitNoteName(name);
+    els.targetNote.textContent = split.letter + split.octave;
+    els.targetFreq.textContent = `${midiToFreq(state.tuningString, a4).toFixed(2)} Hz`;
+    return;
+  }
+
+  // No score, no string: free-running tuner — hide the reference row.
+  els.tunerMeta.hidden = true;
+}
+
+function selectTuningString(midi) {
+  // Toggle: clicking the active button clears the selection.
+  if (state.tuningString === midi) {
+    state.tuningString = null;
+  } else {
+    state.tuningString = midi;
+  }
+  document.querySelectorAll(".string-btn").forEach(b => {
+    const m = parseInt(b.dataset.midi, 10);
+    b.classList.toggle("active", m === state.tuningString);
+  });
+  refreshTargetDisplay();
+}
+
+/* ----------------------------- Pitch sample ----------------------------- */
+
+function onPitchSample({ pitch, valid }) {
+  const a4 = parseFloat(els.a4Ref.value) || 440;
+  const tol = clamp(parseFloat(els.tolerance.value) || 10, 1, 50);
+  const holdMs = clamp(parseFloat(els.holdTime.value) || 150, 0, 5000);
+  const step = state.score && state.score.currentStep();
+
+  if (!valid) {
+    // Persistence: don't immediately wipe the display on a short dropout —
+    // keep the last reading visible for a moment so brief bow changes /
+    // string crossings don't make the tuner flash.
+    const sinceValid = performance.now() - state.lastValidAt;
+    if (sinceValid < VALID_PERSIST_MS) return;
+    setTunerIdle("Listening…");
+    state.inTuneSince = null;
+    hideOverlay();
+    return;
+  }
+
+  state.lastValidAt = performance.now();
+
+  const info = freqToNoteInfo(pitch, a4);
+  setTunerNote(info.name);
+  els.detectedFreq.textContent = `${pitch.toFixed(2)} Hz`;
+
+  if (!step && state.tuningString != null) {
+    // String-tuning mode: cents from the chosen open-string target.
+    const targetMidi = state.tuningString;
+    const cents = centsFromTarget(pitch, targetMidi, a4);
+    const semitones = freqToMidi(pitch, a4) - targetMidi;
+    const nearby = Math.abs(cents) <= 50;
+    setNeedle(cents);
+    els.deviationCents.textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(0)} ¢`;
+    if (info.midi !== targetMidi) {
+      els.deviationStatus.textContent = `Wrong note (${info.name})`;
+      setTunerTone("error");
+      els.needle.classList.remove("in-tune");
+    } else if (Math.abs(cents) <= tol) {
+      els.deviationStatus.textContent = "In tune";
+      setTunerTone("in-tune");
+      els.needle.classList.add("in-tune");
+    } else if (cents > 0) {
+      els.deviationStatus.textContent = nearby ? "Sharp" : "Sharp (far)";
+      setTunerTone("sharp");
+      els.needle.classList.remove("in-tune");
+    } else {
+      els.deviationStatus.textContent = nearby ? "Flat" : "Flat (far)";
+      setTunerTone("flat");
+      els.needle.classList.remove("in-tune");
+    }
+    return;
+  }
+
+  if (!step) {
+    // Pure tuner mode: cents from the nearest note.
+    const cents = info.cents;
+    setNeedle(cents);
+    els.deviationCents.textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(0)} ¢`;
+    if (Math.abs(cents) <= tol) {
+      els.deviationStatus.textContent = "In tune";
+      setTunerTone("in-tune");
+      els.needle.classList.add("in-tune");
+    } else if (cents > 0) {
+      els.deviationStatus.textContent = "Sharp";
+      setTunerTone("sharp");
+      els.needle.classList.remove("in-tune");
+    } else {
+      els.deviationStatus.textContent = "Flat";
+      setTunerTone("flat");
+      els.needle.classList.remove("in-tune");
+    }
+    return;
+  }
+
+  // Practice mode: cents from the current target (not nearest), so the user
+  // sees how far they are from what the score asks for.
+  const cents = centsFromTarget(pitch, step.midi, a4);
+  const semitones = freqToMidi(pitch, a4) - step.midi;
+  const nearby = Math.abs(cents) <= 50;
+  setNeedle(cents);
+  els.deviationCents.textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(0)} ¢`;
+
+  // ---- Paint the on-score ghost note ----
+  let tone;
+  let labelText;
+  if (info.midi !== step.midi) {
+    tone = "error";
+    labelText = `${info.name} (${semitones > 0 ? "+" : ""}${semitones.toFixed(1)} st)`;
+  } else if (Math.abs(cents) <= tol) {
+    tone = "in-tune";
+    labelText = `${info.name} \u2713`;
+  } else {
+    tone = cents > 0 ? "sharp" : "flat";
+    labelText = `${info.name} ${cents > 0 ? "+" : ""}${cents.toFixed(0)}\u00A2`;
+  }
+  paintOverlay({ semitonesFromTarget: semitones, labelText, tone });
+
+  // ---- Update tuner readout + advancement logic ----
+  if (info.midi !== step.midi) {
+    els.deviationStatus.textContent = `Wrong note (${info.name})`;
+    setTunerTone("error");
+    els.needle.classList.remove("in-tune");
+    state.inTuneSince = null;
+    return;
+  }
+
+  if (Math.abs(cents) <= tol) {
+    els.deviationStatus.textContent = "In tune";
+    setTunerTone("in-tune");
+    els.needle.classList.add("in-tune");
+    const now = performance.now();
+    if (state.inTuneSince == null) state.inTuneSince = now;
+    if (now - state.inTuneSince >= holdMs) {
+      state.score.advance();
+      state.inTuneSince = null;
+      refreshTargetDisplay();
+    }
+  } else {
+    els.needle.classList.remove("in-tune");
+    state.inTuneSince = null;
+    if (cents > 0) {
+      els.deviationStatus.textContent = nearby ? "Sharp" : "Sharp (far)";
+      setTunerTone("sharp");
+    } else {
+      els.deviationStatus.textContent = nearby ? "Flat" : "Flat (far)";
+      setTunerTone("flat");
+    }
+  }
+}
+
+async function handleFileLoad(file) {
+  if (!file) return;
+  setStatus(`Loading ${file.name}…`);
+  els.scorePlaceholder.style.display = "none";
+  els.scoreContainer.classList.add("has-score");
+  // OSMD may rebuild the score container on render — drop any stale overlay.
+  if (state.overlay && state.overlay.parentNode) state.overlay.parentNode.removeChild(state.overlay);
+  state.overlay = null;
+  try {
+    if (!state.score) {
+      state.score = new Score(els.scoreContainer);
+    }
+    await state.score.loadFile(file);
+    const total = state.score.measureCount;
+    els.sectionStart.value = 1;
+    els.sectionStart.max = total;
+    els.sectionEnd.value = total;
+    els.sectionEnd.max = total;
+    refreshTargetDisplay();
+    setStatus(`Loaded ${file.name} (${state.score.steps.length} notes, ${total} measures).`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Failed to load: ${err.message || err}`);
+    els.scorePlaceholder.style.display = "";
+    els.scoreContainer.classList.remove("has-score");
+  }
+}
+
+async function toggleMic() {
+  if (state.tracker.isActive) {
+    state.tracker.stop();
+    els.micBtn.textContent = "Enable Microphone";
+    els.micBtn.classList.remove("active");
+    hideOverlay();
+    setTunerIdle("Idle");
+    state.lastValidAt = 0;
+    setStatus("Microphone stopped.");
+    return;
+  }
+  try {
+    if (!window.isSecureContext) {
+      const host = location.hostname;
+      throw new Error(
+        `This page is not a secure context (host="${host}"). ` +
+        `Browsers only allow microphone access on https://, http://localhost, or http://127.0.0.1. ` +
+        `Open this app at http://localhost:${location.port || 80} instead.`
+      );
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("This browser does not expose getUserMedia. Try a recent Chrome / Edge / Firefox.");
+    }
+    await state.tracker.start(onPitchSample);
+    els.micBtn.textContent = "Microphone On";
+    els.micBtn.classList.add("active");
+    setStatus("Microphone live. Play a note.");
+  } catch (err) {
+    console.error(err);
+    let hint = err.message || String(err);
+    if (err && err.name === "NotAllowedError") {
+      hint = "Microphone permission denied. Click the lock icon in the address bar → Microphone → Allow, then reload.";
+    } else if (err && err.name === "NotFoundError") {
+      hint = "No microphone was found by the browser.";
+    }
+    setStatus(`Microphone error: ${hint}`);
+  }
+}
+
+function wireEvents() {
+  els.fileInput.addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) handleFileLoad(f);
+    // Reset so selecting the same file again still fires `change`.
+    e.target.value = "";
+  });
+  els.micBtn.addEventListener("click", toggleMic);
+  els.tolerance.addEventListener("input", updateToleranceZone);
+  els.a4Ref.addEventListener("input", refreshTargetDisplay);
+
+  // String-tuner quick-pick buttons.
+  document.querySelectorAll(".string-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const midi = parseInt(btn.dataset.midi, 10);
+      if (Number.isFinite(midi)) selectTuningString(midi);
+    });
+  });
+
+  els.resetDefaults.addEventListener("click", () => {
+    els.tolerance.value = DEFAULTS.tolerance;
+    els.holdTime.value = DEFAULTS.holdTime;
+    els.a4Ref.value = DEFAULTS.a4Ref;
+    updateToleranceZone();
+    refreshTargetDisplay();
+    state.inTuneSince = null;
+    setStatus(`Defaults restored: tolerance ±${DEFAULTS.tolerance}¢, hold ${DEFAULTS.holdTime} ms, A4 ${DEFAULTS.a4Ref} Hz.`);
+  });
+
+  els.applySection.addEventListener("click", () => {
+    if (!state.score) return;
+    const s = parseInt(els.sectionStart.value, 10) || 1;
+    const e = parseInt(els.sectionEnd.value, 10) || s;
+    const applied = state.score.setSection(s, e);
+    els.sectionStart.value = applied.startMeasure;
+    els.sectionEnd.value = applied.endMeasure;
+    refreshTargetDisplay();
+    setStatus(`Section set: measures ${applied.startMeasure}–${applied.endMeasure}.`);
+  });
+  els.clearSection.addEventListener("click", () => {
+    if (!state.score) return;
+    state.score.clearSection();
+    els.sectionStart.value = 1;
+    els.sectionEnd.value = state.score.measureCount;
+    refreshTargetDisplay();
+    setStatus("Section cleared (full score).");
+  });
+
+  els.resetBtn.addEventListener("click", () => {
+    if (!state.score) return;
+    state.score.resetToSectionStart();
+    state.inTuneSince = null;
+    refreshTargetDisplay();
+  });
+  els.prevBtn.addEventListener("click", () => {
+    if (!state.score) return;
+    state.score.prev();
+    state.inTuneSince = null;
+    refreshTargetDisplay();
+  });
+  els.nextBtn.addEventListener("click", () => {
+    if (!state.score) return;
+    state.score.advance();
+    state.inTuneSince = null;
+    refreshTargetDisplay();
+  });
+  els.skipBtn.addEventListener("click", () => {
+    if (!state.score) return;
+    state.score.advance();
+    state.inTuneSince = null;
+    refreshTargetDisplay();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (e.key === "ArrowRight") { els.nextBtn.click(); }
+    else if (e.key === "ArrowLeft") { els.prevBtn.click(); }
+    else if (e.key === "r" || e.key === "R") { els.resetBtn.click(); }
+    else if (e.key === "m" || e.key === "M") { els.micBtn.click(); }
+  });
+
+  wireLongPressJump();
+}
+
+/* ------------------------- Long-press jump-to-note ------------------------- */
+
+/**
+ * Long-press (≈450 ms) anywhere on the score to jump the cursor to the nearest
+ * pitched note. Works with mouse, touch, and pen (Pointer Events).
+ */
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_MOVE_SLOP_PX = 8;
+
+function wireLongPressJump() {
+  let timerId = null;
+  let startX = 0, startY = 0;
+  let startedAt = 0;
+
+  const cancel = () => {
+    if (timerId) { clearTimeout(timerId); timerId = null; }
+    els.scoreContainer.classList.remove("long-pressing");
+  };
+
+  els.scoreContainer.addEventListener("pointerdown", (e) => {
+    if (!state.score || state.score.steps.length === 0) return;
+    // Ignore non-primary buttons (right-click etc.) on mouse devices.
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    cancel();
+    startX = e.clientX;
+    startY = e.clientY;
+    startedAt = performance.now();
+    els.scoreContainer.classList.add("long-pressing");
+    timerId = setTimeout(() => {
+      timerId = null;
+      els.scoreContainer.classList.remove("long-pressing");
+      jumpToPointerEvent(e);
+    }, LONG_PRESS_MS);
+  });
+
+  els.scoreContainer.addEventListener("pointermove", (e) => {
+    if (timerId == null) return;
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > LONG_PRESS_MOVE_SLOP_PX) cancel();
+  });
+  els.scoreContainer.addEventListener("pointerup", cancel);
+  els.scoreContainer.addEventListener("pointercancel", cancel);
+  els.scoreContainer.addEventListener("pointerleave", cancel);
+}
+
+function jumpToPointerEvent(e) {
+  if (!state.score) return;
+  const cursorEl = state.score.getCursorElement();
+  const offsetParent = cursorEl && cursorEl.parentElement;
+  if (!offsetParent) return;
+  // Convert clientX/Y into the cursor's offsetParent coordinate space — the
+  // same space the steps' recorded x/y live in.
+  const r = offsetParent.getBoundingClientRect();
+  const localX = e.clientX - r.left;
+  const localY = e.clientY - r.top;
+  const idx = state.score.findStepIndexNearPoint(localX, localY);
+  if (idx < 0) {
+    setStatus("Long-press: no note found near that point.");
+    return;
+  }
+  state.score.goToStep(idx);
+  state.inTuneSince = null;
+  refreshTargetDisplay();
+  const step = state.score.currentStep();
+  if (step) setStatus(`Jumped to ${step.name} (measure ${step.measureNumber}).`);
+}
+
+updateToleranceZone();
+wireEvents();
+setStatus("Load a score, enable the microphone, then play.");
+
+// Test hook: lets us drive the pitch handler from outside (without a mic).
+//   window.__feedPitch(440)           -> plays A4
+//   window.__feedPitch(0, false)      -> "no signal"
+window.__feedPitch = (hz, valid = true) => onPitchSample({ pitch: hz, valid });
