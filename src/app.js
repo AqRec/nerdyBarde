@@ -189,7 +189,7 @@ function paintOverlay({ semitonesFromTarget, labelText, tone }) {
   }
   label.style.bottom = "auto";
 
-  overlay.classList.remove("in-tune", "sharp", "flat", "error");
+  overlay.classList.remove("in-tune", "sharp", "flat", "error-high", "error-low");
   if (tone) overlay.classList.add(tone);
   overlay.classList.add("visible");
 }
@@ -227,8 +227,8 @@ function splitNoteName(name) {
 }
 
 function setTunerTone(tone) {
-  // tone ∈ "in-tune" | "sharp" | "flat" | "error" | "listening" | null
-  els.tunerPanel.classList.remove("in-tune", "sharp", "flat", "error", "listening");
+  // tone ∈ "in-tune" | "sharp" | "flat" | "error-high" | "error-low" | "listening" | null
+  els.tunerPanel.classList.remove("in-tune", "sharp", "flat", "error-high", "error-low", "listening");
   if (tone) els.tunerPanel.classList.add(tone);
 }
 
@@ -344,7 +344,8 @@ function onPitchSample({ pitch, valid }) {
     els.deviationCents.textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(0)} ¢`;
     if (info.midi !== targetMidi) {
       els.deviationStatus.textContent = `Wrong note (${info.name})`;
-      setTunerTone("error");
+      // Split the wrong-note state by direction: too-high = red, too-low = gray.
+      setTunerTone(semitones > 0 ? "error-high" : "error-low");
       els.needle.classList.remove("in-tune");
     } else if (Math.abs(cents) <= tol) {
       els.deviationStatus.textContent = "In tune";
@@ -395,7 +396,8 @@ function onPitchSample({ pitch, valid }) {
   let tone;
   let labelText;
   if (info.midi !== step.midi) {
-    tone = "error";
+    // Split the wrong-note state by direction: too-high = red, too-low = gray.
+    tone = semitones > 0 ? "error-high" : "error-low";
     labelText = `${info.name} (${semitones > 0 ? "+" : ""}${semitones.toFixed(1)} st)`;
   } else if (Math.abs(cents) <= tol) {
     tone = "in-tune";
@@ -409,7 +411,7 @@ function onPitchSample({ pitch, valid }) {
   // ---- Update tuner readout + advancement logic ----
   if (info.midi !== step.midi) {
     els.deviationStatus.textContent = `Wrong note (${info.name})`;
-    setTunerTone("error");
+    setTunerTone(semitones > 0 ? "error-high" : "error-low");
     els.needle.classList.remove("in-tune");
     state.inTuneSince = null;
     return;

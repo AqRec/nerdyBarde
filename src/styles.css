@@ -219,8 +219,8 @@ main {
 }
 
 /* Tuning-state colors. The note letter, cents readout and status all share
-   the same class names ("in-tune" / "sharp" / "flat" / "error") so a single
-   className swap on .tuner-panel re-tints everything. */
+   the same class names ("in-tune" / "sharp" / "flat" / "error-high" /
+   "error-low") so a single className swap on .tuner-panel re-tints everything. */
 .tuner-panel.in-tune .tuner-letter,
 .tuner-panel.in-tune .tuner-octave { color: var(--good); text-shadow: 0 0 18px rgba(108,255,176,0.35); }
 .tuner-panel.in-tune .tuner-cents  { color: var(--good); }
@@ -236,10 +236,19 @@ main {
 .tuner-panel.flat .tuner-cents    { color: #6cb5ff; }
 .tuner-panel.flat .tuner-status   { color: #6cb5ff; }
 
-.tuner-panel.error .tuner-letter,
-.tuner-panel.error .tuner-octave  { color: var(--bad); }
-.tuner-panel.error .tuner-cents   { color: var(--bad); }
-.tuner-panel.error .tuner-status  { color: var(--bad); }
+/* error-high: wrong note that is *above* the target. Red signals "sharp /
+   over-pitched / probably you crossed strings too far up". */
+.tuner-panel.error-high .tuner-letter,
+.tuner-panel.error-high .tuner-octave  { color: var(--bad); }
+.tuner-panel.error-high .tuner-cents   { color: var(--bad); }
+.tuner-panel.error-high .tuner-status  { color: var(--bad); }
+
+/* error-low: wrong note that is *below* the target. A muted gray reads as
+   "too low / under-pitched", complementing the red used for too-high errors. */
+.tuner-panel.error-low .tuner-letter,
+.tuner-panel.error-low .tuner-octave  { color: #9aa3b2; }
+.tuner-panel.error-low .tuner-cents   { color: #9aa3b2; }
+.tuner-panel.error-low .tuner-status  { color: #9aa3b2; }
 
 .tuner-panel.listening .tuner-status { color: var(--muted); }
 
@@ -448,7 +457,8 @@ main {
 }
 .detected-overlay.sharp .ghost-note { background: #ff8a3d; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(255,138,61,0.6); }
 .detected-overlay.flat  .ghost-note { background: #4f8cff; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(79,140,255,0.6); }
-.detected-overlay.error .ghost-note { background: #e0524a; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(224,82,74,0.6); }
+.detected-overlay.error-high .ghost-note { background: #e0524a; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(224,82,74,0.6); }
+.detected-overlay.error-low .ghost-note { background: #9aa3b2; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(154,163,178,0.6); }
 
 .detected-overlay .ghost-label {
   position: absolute;
@@ -466,7 +476,8 @@ main {
   border: 1px solid rgba(255,255,255,0.15);
 }
 .detected-overlay.in-tune .ghost-label { background: #1f6f43; border-color: #2bbf6f; }
-.detected-overlay.error .ghost-label   { background: #7a2a25; border-color: #e0524a; }
+.detected-overlay.error-high .ghost-label { background: #7a2a25; border-color: #e0524a; }
+.detected-overlay.error-low .ghost-label { background: #3a4150; border-color: #9aa3b2; }
 
 /* A faint vertical guide between the cursor center and the ghost note,
    making the deviation visually obvious. */
@@ -480,7 +491,8 @@ main {
 }
 .detected-overlay.in-tune .ghost-guide { background: rgba(43,191,111,0.35); }
 .detected-overlay.sharp .ghost-guide   { background: rgba(255,138,61,0.35); }
-.detected-overlay.error .ghost-guide   { background: rgba(224,82,74,0.4); }
+.detected-overlay.error-high .ghost-guide { background: rgba(224,82,74,0.4); }
+.detected-overlay.error-low .ghost-guide { background: rgba(154,163,178,0.4); }
 .placeholder {
   text-align: center;
   padding: 60px 20px;
