@@ -19,11 +19,24 @@ python3 -m http.server 8000
 npx --yes serve .
 ```
 
-Then open `http://localhost:8000` (or `http://127.0.0.1:8000`) in a Chromium-based, Firefox, or Safari browser.
+Then open `http://localhost:8000` (or `http://127.0.0.1:8000`) in a Chromium-based, Firefox, or Safari browser. The bundled violin scales score auto-loads on first visit so you can start practicing without picking a file.
 
 > Do **not** open the app at `http://0.0.0.0:8000`. Browsers don't treat that as a secure context, so microphone access is silently blocked. The app will show a hint in the status bar if you do.
 
 ## Use
+
+The tuner and the score share a single pitch listener. You can switch between
+them at any time, and the app tracks what you actually want to practice:
+
+- **Click a string button (`G3 D4 A4 E5`)** at any moment to lock the listener
+  to that open string. The on-score ghost notehead hides and the readout shows
+  cents relative to the chosen string, with a *Wrong note* warning if you bow
+  the wrong one. Click the active button again to release the lock.
+- **Long-press anywhere on the score** (≈ 450 ms, mouse / touch / pen) to jump
+  the cursor to the nearest note. This also releases any active string lock,
+  so a long-press is the one-touch way to return from tuning to practice.
+- **Just bow** with no score loaded and no string locked, and you get a plain
+  chromatic tuner that snaps to whatever note you're closest to.
 
 ### As a tuner
 
@@ -33,11 +46,12 @@ Then open `http://localhost:8000` (or `http://127.0.0.1:8000`) in a Chromium-bas
 
 ### As a practice trainer
 
-1. Click **Load Score** and pick a file from `test-files/` (try `score-alicia.xml` or `alicia.mxl`).
+1. (Optional) Click **Load Score** to use your own `.musicxml` / `.xml` / `.mxl` file. The bundled `violin-all-major-scales.musicxml` loads automatically if you don't pick one.
 2. Click **Enable Microphone**.
 3. (Optional) Set a practice section: enter start/end measures and click **Apply Section**.
 4. Play the highlighted note. When you hold it within the tolerance for the configured time, the cursor advances. At the end of the section, practice restarts from the beginning.
-5. To jump to a different spot mid-practice, **long-press** (≈450 ms) anywhere on the score.
+5. To jump to a different spot mid-practice, **long-press** (≈ 450 ms) anywhere on the score.
+6. Append `?score=none` to the URL to skip the auto-load, or `?score=path/to/file.musicxml` to demo a different file without rebuilding.
 
 ### Keyboard shortcuts
 
@@ -58,23 +72,24 @@ Then open `http://localhost:8000` (or `http://127.0.0.1:8000`) in a Chromium-bas
 
 ### Score practice
 - **Load** `.musicxml` / `.xml` / `.mxl` scores. MXL is a zipped MusicXML container, and OpenSheetMusicDisplay handles it natively.
+- **Auto-loaded default score** (the bundled all-major-scales file) so the page is usable immediately; override with `?score=<url>` or skip with `?score=none`.
 - **Score display** with a live cursor that highlights the current target note.
 - **Section practice**: restrict practice to a measure range; the cursor loops within it.
-- **Long-press to jump**: press and hold any point on the score (~450 ms, mouse / touch / pen) to move the cursor to the nearest note.
+- **Long-press to jump**: press and hold any point on the score (~ 450 ms, mouse / touch / pen) to move the cursor to the nearest note. Also clears any active string lock, returning the app to practice mode.
 - **Auto-advance** when the detected pitch sits within the tolerance band for a configurable hold time.
 
 ### Tuner
 - **Built-in chromatic tuner** with a large letter+octave display, signed cents readout, and a ±50 ¢ needle bar.
-- **Open-string quick-pick buttons** (G3 / D4 / A4 / E5): click one to lock the tuner to that string and get *Wrong note* warnings if you bow the wrong one. Auto-disabled while a score is loaded.
+- **Open-string quick-pick buttons** (G3 / D4 / A4 / E5): always available, even while a score is loaded. Click one to lock the tuner to that string and get *Wrong note* warnings if you bow the wrong one; click again (or long-press a note on the score) to return to whichever mode the score / no-score state implies.
 
 ### Pitch detection
 - **Real-time pitch detection** via the Web Audio API plus the [pitchy](https://github.com/ianprime0509/pitchy) autocorrelation detector.
 - **Dropout smoothing**: short dips in signal clarity (bow changes, string crossings) don't blank the display. The last reading persists for up to 500 ms.
 
 ### Visual feedback
-- **Numeric tuner panel**: detected note (letter + octave), frequency, signed cents, status. The whole panel re-tints green (in tune) / orange (sharp) / blue (flat) / red (wrong note), giving you at-a-glance feedback from across the room.
+- **Numeric tuner panel**: detected note (letter + octave), frequency, signed cents, status. The whole panel re-tints by tuning state — green (in tune) / orange (sharp, in-pitch) / blue (flat, in-pitch) / red (wrong note above the target) / gray (wrong note below the target) — giving you at-a-glance feedback from across the room.
 - **Pitch bar** with a translucent tolerance band and a needle that turns green when in tune.
-- **On-score "ghost notehead"** anchored to the OSMD cursor, drifting up/down by the actual semitone deviation so you can see *where* on the staff your pitch is landing relative to the target.
+- **On-score "ghost notehead"** anchored to the OSMD cursor, drifting up/down by the actual semitone deviation so you can see *where* on the staff your pitch is landing relative to the target. Hidden while a string-tuner button is active.
 
 ### Customization
 - **Tolerance** (±cents), **Hold time** (ms), and **A4 reference** (Hz) are all editable live.
@@ -101,7 +116,9 @@ intonation/
 │   ├── score.js            # OSMD wrapper: load, step-list, cursor, section, long-press lookup
 │   ├── pitch.js            # PitchTracker + freq↔MIDI↔note helpers
 │   └── styles.css          # Dark theme, tuner, pitch bar, floating controls, on-score overlay
-├── test-files/             # Sample MusicXML / MXL scores
+├── test-files/
+│   └── all-major-scales/
+│       └── violin-all-major-scales.musicxml  # Default auto-loaded score (12 major scales, 2 octaves)
 └── README.md               # This file
 ```
 

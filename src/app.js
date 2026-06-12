@@ -253,12 +253,23 @@ function refreshTargetDisplay() {
   const hasScore = !!state.score && state.score.steps.length > 0;
   const a4 = parseFloat(els.a4Ref.value) || 440;
 
-  // The string-picker is mutually exclusive with score practice. Hide the
-  // string buttons' active state when a score is in charge so the UI doesn't
-  // suggest two simultaneous targets.
-  const stringButtons = document.querySelectorAll(".string-btn");
-  stringButtons.forEach(b => { b.disabled = hasScore; if (hasScore) b.classList.remove("active"); });
-  if (hasScore) state.tuningString = null;
+  // Tuning a string takes precedence over score practice when both are
+  // available, so the user can interrupt a score with the string picker
+  // and resume by long-pressing a note (which clears tuningString). The
+  // string buttons stay enabled either way so the user can switch modes
+  // at any time.
+  if (state.tuningString != null) {
+    els.tunerMeta.hidden = false;
+    document.getElementById("tuner-meta-label").textContent = "Tune string";
+    const name = midiToNoteName(state.tuningString);
+    const split = splitNoteName(name);
+    els.targetNote.textContent = split.letter + split.octave;
+    els.targetFreq.textContent = `${midiToFreq(state.tuningString, a4).toFixed(2)} Hz`;
+    // While tuning, hide the on-score "ghost notehead" — it would otherwise
+    // linger from the last sample painted by practice mode.
+    hideOverlay();
+    return;
+  }
 
   if (hasScore) {
     els.tunerMeta.hidden = false;
@@ -280,22 +291,14 @@ function refreshTargetDisplay() {
     return;
   }
 
-  if (state.tuningString != null) {
-    els.tunerMeta.hidden = false;
-    document.getElementById("tuner-meta-label").textContent = "Tune string";
-    const name = midiToNoteName(state.tuningString);
-    const split = splitNoteName(name);
-    els.targetNote.textContent = split.letter + split.octave;
-    els.targetFreq.textContent = `${midiToFreq(state.tuningString, a4).toFixed(2)} Hz`;
-    return;
-  }
-
   // No score, no string: free-running tuner — hide the reference row.
   els.tunerMeta.hidden = true;
 }
 
 function selectTuningString(midi) {
-  // Toggle: clicking the active button clears the selection.
+  // Toggle: clicking the active button clears the selection (returning to
+  // either score-practice mode or free-tuner mode, depending on whether
+  // a score is loaded).
   if (state.tuningString === midi) {
     state.tuningString = null;
   } else {
@@ -305,6 +308,9 @@ function selectTuningString(midi) {
     const m = parseInt(b.dataset.midi, 10);
     b.classList.toggle("active", m === state.tuningString);
   });
+  // Reset the hold timer so a still-bowed pitch doesn't accidentally trip
+  // a stale practice-mode advancement on the very next sample.
+  state.inTuneSince = null;
   refreshTargetDisplay();
 }
 
@@ -334,8 +340,11 @@ function onPitchSample({ pitch, valid }) {
   setTunerNote(info.name);
   els.detectedFreq.textContent = `${pitch.toFixed(2)} Hz`;
 
-  if (!step && state.tuningString != null) {
-    // String-tuning mode: cents from the chosen open-string target.
+  if (state.tuningString != null) {
+    // String-tuning mode (takes precedence over score practice). Cents are
+    // measured from the chosen open-string target. The on-score ghost is
+    // suppressed because we're not comparing against the score's target.
+    hideOverlay();
     const targetMidi = state.tuningString;
     const cents = centsFromTarget(pitch, targetMidi, a4);
     const semitones = freqToMidi(pitch, a4) - targetMidi;
@@ -653,6 +662,12 @@ function jumpToPointerEvent(e) {
   }
   state.score.goToStep(idx);
   state.inTuneSince = null;
+  // Long-pressing a note also returns the user from string-tuning mode back
+  // to score practice. Clear any active string pick and refresh button state.
+  if (state.tuningString != null) {
+    state.tuningString = null;
+    document.querySelectorAll(".string-btn").forEach(b => b.classList.remove("active"));
+  }
   refreshTargetDisplay();
   const step = state.score.currentStep();
   if (step) setStatus(`Jumped to ${step.name} (measure ${step.measureNumber}).`);
@@ -660,7 +675,88 @@ function jumpToPointerEvent(e) {
 
 updateToleranceZone();
 wireEvents();
+wireDonationCopy();
 setStatus("Load a score, enable the microphone, then play.");
+
+/* ----------------------------- Default score ----------------------------- */
+
+/**
+ * URL of the score that loads automatically on first visit. Relative to the
+ * page so it works on both `python3 -m http.server` and GitHub Pages
+ * (where the repo is served at `<user>.github.io/<repo>/`).
+ *
+ * Override via `?score=<path>` to demo a different file without rebuilding.
+ */
+const DEFAULT_SCORE_URL = "./test-files/all-major-scales/violin-all-major-scales.musicxml";
+
+async function autoLoadDefaultScore() {
+  // Don't auto-load if the user has already opened the page with a score
+  // explicitly suppressed (`?score=none`).
+  const params = new URLSearchParams(location.search);
+  const override = params.get("score");
+  if (override === "none") return;
+  const url = override || DEFAULT_SCORE_URL;
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    // Derive a filename from the URL so handleFileLoad's status message and
+    // OSMD's MXL-vs-XML branching (which keys off the .mxl extension) both
+    // work without changes.
+    const name = url.split("/").pop() || "score.musicxml";
+    const file = new File([blob], name, { type: blob.type });
+    await handleFileLoad(file);
+  } catch (err) {
+    // Soft-fail: just leave the placeholder visible. Don't spam the status bar
+    // with an error on the local file:// case or on first-time visitors who
+    // haven't deployed the test-files yet.
+    console.info(`Default score not auto-loaded (${err.message || err}).`);
+  }
+}
+
+// Kick off the default-score fetch *after* DEFAULT_SCORE_URL and
+// autoLoadDefaultScore are both defined (avoids a TDZ ReferenceError).
+autoLoadDefaultScore();
+
+/* --------------------------- Donation copy-to-clipboard --------------------------- */
+
+/**
+ * Wire up the donation panel: clicking an address copies it to the clipboard
+ * and briefly flashes a "Copied!" label on the button.
+ */
+function wireDonationCopy() {
+  document.querySelectorAll(".donation-addr").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const addr = btn.dataset.copy || btn.textContent.trim();
+      try {
+        await navigator.clipboard.writeText(addr);
+        flashCopied(btn);
+      } catch {
+        // Fallback for non-secure contexts or older browsers.
+        const ta = document.createElement("textarea");
+        ta.value = addr;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); flashCopied(btn); }
+        catch { setStatus("Could not copy address; please copy manually."); }
+        ta.remove();
+      }
+    });
+  });
+}
+
+function flashCopied(btn) {
+  const original = btn.textContent;
+  btn.textContent = "Copied!";
+  btn.classList.add("copied");
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove("copied");
+  }, 1200);
+}
 
 // Test hook: lets us drive the pitch handler from outside (without a mic).
 //   window.__feedPitch(440)           -> plays A4
