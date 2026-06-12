@@ -1,151 +1,130 @@
-# nerdyBarde - an open-source Intonation Trainer
+# nerdyBarde
 
-An interactive web app that displays music score, listens to your violin through the microphone, and only advances when the current note is played accurately (within a configurable pitch tolerance). 
+**A web app that listens to your violin and tells you, note by note, whether you're in tune.**
 
-Also has a built-in chromatic tuner with open-string quick-picks for G / D / A / E.
+👉 **[Try it in your browser](https://aqrec.github.io/nerdyBarde/)**. No install, nothing to download. Works in Chrome, Edge, Firefox, and Safari.
 
 ![demo](./documents/media/demo.png)
 
-## Run
+---
 
-The app is a plain static site with no build step. Because browsers block `getUserMedia` and ES module loading on `file://`, serve it over HTTP.
+## What it does
 
-From the project root:
+- **Practice trainer.** Loads a sheet-music file, highlights one note at a time, and only moves to the next one once you've played the current note in tune.
+- **Tuner.** Four big buttons (G · D · A · E) tune the open strings. Or play freely and it tells you what note you're on and how sharp/flat you are.
+- **Visual feedback.** A "ghost notehead" floats above the staff at your actual pitch, so you can see at a glance whether you're hitting the target or drifting half a step away.
 
-```bash
-# Any static server works. Examples:
-python3 -m http.server 8000
-# or
-npx --yes serve .
-```
+## Quick start
 
-Then open `http://localhost:8000` (or `http://127.0.0.1:8000`) in a Chromium-based, Firefox, or Safari browser. The bundled violin scales score auto-loads on first visit so you can start practicing without picking a file.
+1. Open **[the app](https://aqrec.github.io/nerdyBarde/)**.
+2. Click **Enable Microphone** and allow access.
+3. The default scales practice loads automatically. Or click **Load Score** to use your own MusicXML / MXL file.
+4. Bow the highlighted note. Hold it in tune for a fraction of a second and the cursor advances by itself.
 
-> Do **not** open the app at `http://0.0.0.0:8000`. Browsers don't treat that as a secure context, so microphone access is silently blocked. The app will show a hint in the status bar if you do.
+That's the whole loop. The settings in the toolbar fine-tune *how strict* and *how patient* the app is.
 
-## Use
+## Modes (and how to switch)
 
-The tuner and the score share a single pitch listener. You can switch between
-them at any time, and the app tracks what you actually want to practice:
+You can flip between modes any time during a session:
 
-- **Click a string button (`G3 D4 A4 E5`)** at any moment to lock the listener
-  to that open string. The on-score ghost notehead hides and the readout shows
-  cents relative to the chosen string, with a *Wrong note* warning if you bow
-  the wrong one. Click the active button again to release the lock.
-- **Long-press anywhere on the score** (≈ 450 ms, mouse / touch / pen) to jump
-  the cursor to the nearest note. This also releases any active string lock,
-  so a long-press is the one-touch way to return from tuning to practice.
-- **Just bow** with no score loaded and no string locked, and you get a plain
-  chromatic tuner that snaps to whatever note you're closest to.
-
-### As a tuner
-
-1. Click **Enable Microphone** and grant permission.
-2. (Optional) Click one of the four string buttons (`G3 D4 A4 E5`) to lock onto a specific open string.
-3. Play. The big letter shows the detected note, the needle shows the deviation, and the panel color tells you sharp / flat / in tune at a glance.
-
-### As a practice trainer
-
-1. (Optional) Click **Load Score** to use your own `.musicxml` / `.xml` / `.mxl` file. The bundled `violin-all-major-scales.musicxml` loads automatically if you don't pick one.
-2. Click **Enable Microphone**.
-3. (Optional) Set a practice section: enter start/end measures and click **Apply Section**.
-4. Play the highlighted note. When you hold it within the tolerance for the configured time, the cursor advances. At the end of the section, practice restarts from the beginning.
-5. To jump to a different spot mid-practice, **long-press** (≈ 450 ms) anywhere on the score.
-6. Append `?score=none` to the URL to skip the auto-load, or `?score=path/to/file.musicxml` to demo a different file without rebuilding.
+| To do this... | ...do this |
+|---|---|
+| Tune a specific open string | Click the **G3 / D4 / A4 / E5** button |
+| Stop tuning, go back to practice | Click the active string button again, or **long-press** any note on the score |
+| Jump to a specific spot in the piece | **Long-press** that note (≈ ½ second hold) |
+| Practice only a section | Set **From** / **To** measures, then **Apply Section**. The cursor will loop in that range |
+| Recover from a wrong setting | Click **Reset defaults** |
 
 ### Keyboard shortcuts
 
-- `→` / `←`: Next / Previous note
-- `R`: Restart current section
-- `M`: Toggle microphone
+- `→` / `←` &nbsp; Next / previous note
+- `R` &nbsp; Restart current section
+- `M` &nbsp; Toggle microphone
 
-### Recommended practice progression
+## How strict should the app be?
+
+The two key knobs:
+
+- **Tolerance (± cents):** how close to perfect counts as "in tune"
+- **Hold time (ms):** how long you must hold the note before it counts
+
+A suggested ramp as you get better:
 
 | Stage | Tolerance | Hold time |
 | --- | --- | --- |
-| Beginner (slow practice) | ±20 ¢ | 400 ms |
-| Standard (default) | ±10 ¢ | 150 ms |
-| Advanced | ±5 ¢ | 100 ms |
-| Near performance tempo | ±5 ¢ | 30–60 ms |
+| Beginner (slow practice) | ± 20 ¢ | 400 ms |
+| Standard (default) | ± 10 ¢ | 150 ms |
+| Advanced | ± 5 ¢ | 100 ms |
+| Performance tempo | ± 5 ¢ | 30 – 60 ms |
 
-## Features
+The **A4 reference** input is for orchestras tuning to 441/442 Hz or baroque ensembles at 415.
 
-### Score practice
-- **Load** `.musicxml` / `.xml` / `.mxl` scores. MXL is a zipped MusicXML container, and OpenSheetMusicDisplay handles it natively.
-- **Auto-loaded default score** (the bundled all-major-scales file) so the page is usable immediately; override with `?score=<url>` or skip with `?score=none`.
-- **Score display** with a live cursor that highlights the current target note.
-- **Section practice**: restrict practice to a measure range; the cursor loops within it.
-- **Long-press to jump**: press and hold any point on the score (~ 450 ms, mouse / touch / pen) to move the cursor to the nearest note. Also clears any active string lock, returning the app to practice mode.
-- **Auto-advance** when the detected pitch sits within the tolerance band for a configurable hold time.
+## Reading the colors
 
-### Tuner
-- **Built-in chromatic tuner** with a large letter+octave display, signed cents readout, and a ±50 ¢ needle bar.
-- **Open-string quick-pick buttons** (G3 / D4 / A4 / E5): always available, even while a score is loaded. Click one to lock the tuner to that string and get *Wrong note* warnings if you bow the wrong one; click again (or long-press a note on the score) to return to whichever mode the score / no-score state implies.
+The big detected-note panel and the on-staff "ghost notehead" share one color code:
 
-### Pitch detection
-- **Real-time pitch detection** via the Web Audio API plus the [pitchy](https://github.com/ianprime0509/pitchy) autocorrelation detector.
-- **Dropout smoothing**: short dips in signal clarity (bow changes, string crossings) don't blank the display. The last reading persists for up to 500 ms.
+| Color | Meaning |
+| --- | --- |
+| 🟢 Green | You're on the target note, within tolerance |
+| 🟠 Orange | Right note but **a little sharp** |
+| 🔵 Blue | Right note but **a little flat** |
+| 🔴 Red | Wrong note, **above** the target |
+| ⚪ Gray | Wrong note, **below** the target |
 
-### Visual feedback
-- **Numeric tuner panel**: detected note (letter + octave), frequency, signed cents, status. The whole panel re-tints by tuning state — green (in tune) / orange (sharp, in-pitch) / blue (flat, in-pitch) / red (wrong note above the target) / gray (wrong note below the target) — giving you at-a-glance feedback from across the room.
-- **Pitch bar** with a translucent tolerance band and a needle that turns green when in tune.
-- **On-score "ghost notehead"** anchored to the OSMD cursor, drifting up/down by the actual semitone deviation so you can see *where* on the staff your pitch is landing relative to the target. Hidden while a string-tuner button is active.
+## Things to know
 
-### Customization
-- **Tolerance** (±cents), **Hold time** (ms), and **A4 reference** (Hz) are all editable live.
-- **Reset defaults** button restores tolerance / hold / A4 in one click.
-- Responsive **floating control bar** that pins below the topbar on wide screens (≥1100 px) so settings stay reachable while you scroll through a long score.
+- **Single notes only.** If the music has double-stops or chords, only the highest note in each chord is checked. Single-line violin parts work best.
+- **Treble clef only.** The on-staff ghost notehead assumes treble clef (which is what violin uses).
+- **Settings don't persist** between visits; they reset to defaults each time you reload.
+- **No metronome.** This tool measures pitch, not rhythm. It won't complain if you play slowly, as long as the notes are in tune.
+- **Privacy:** all audio and score processing happens in your browser. **Nothing is uploaded anywhere.** You can disconnect from the internet after loading the page and it still works.
 
-## Tech notes
+---
 
-- **OpenSheetMusicDisplay 1.9.x** renders the score (SVG backend) and provides the cursor used both for highlighting and for walking the note stream. Loaded as an ES module from `esm.sh`.
-- For each cursor stop with at least one pitched note, the **highest-pitched note** is taken as the practice target (suitable for single-line violin parts; double-stops fall back to the top voice).
-- Rests are auto-skipped; they aren't included in the practice step list.
-- Pitch detection: `getUserMedia` → `AnalyserNode` (fftSize 2048) → `pitchy.PitchDetector` on float32 time-domain data. Samples below RMS 0.003 / clarity 0.7 are gated out; the rest are smoothed with a 500 ms persistence window so brief dropouts don't flash the display.
-- MIDI ↔ frequency uses the configurable A4 reference so you can match a tuner at 440 / 442 / 415 / etc.
-- The on-score ghost note is anchored to OSMD's cursor element using a diatonic geometry model where the cursor's vertical span equals the 5-line staff height (so 1 line-spacing = cursorH/4, and 1 semitone ≈ cursorH/8 × 7/12). The full derivation lives in code comments in `src/app.js`.
-- No build step, no server, no dependencies installed locally. All file parsing, audio, and rendering run in the browser. Files never leave your device.
+## For developers
 
-## Files
+The app is a static site with no build step and no backend. To run it locally:
 
-```
-intonation/
-├── index.html              # UI shell
-├── src/
-│   ├── app.js              # Wiring: state, events, pitch handler, overlay painter, long-press, tuner
-│   ├── score.js            # OSMD wrapper: load, step-list, cursor, section, long-press lookup
-│   ├── pitch.js            # PitchTracker + freq↔MIDI↔note helpers
-│   └── styles.css          # Dark theme, tuner, pitch bar, floating controls, on-score overlay
-├── test-files/
-│   └── all-major-scales/
-│       └── violin-all-major-scales.musicxml  # Default auto-loaded score (12 major scales, 2 octaves)
-└── README.md               # This file
+```bash
+git clone https://github.com/AqRec/nerdyBarde
+cd nerdyBarde
+python3 -m http.server 8000   # or: npx --yes serve .
 ```
 
-## Limitations
+Open `http://localhost:8000` (not `http://0.0.0.0:8000`, since browsers block microphone access on non-secure origins).
 
-- Single-voice / monophonic detection: the app picks the top note of each step and listens for one fundamental.
-- Detected-note display uses sharps only (no enharmonic spelling); the *target* spelling on the score overlay is preserved from the MusicXML.
-- On-staff overlay assumes treble clef (violin); other clefs render the score correctly but the ghost-note anchor will be off.
-- No persistence; settings reset on reload.
-- No tempo / metronome, since this is an intonation tool rather than a rhythm tool.
-- Autocorrelation can occasionally report a pitch one octave low for thin signals; the *Wrong note* warning flags this, but it may briefly flicker before settling.
-- Detection latency puts a soft floor around 30–50 ms per note, so hold times below that won't advance reliably.
+Source layout:
 
-## Acknowledgments
+```
+index.html           UI shell
+src/app.js           State, events, pitch handler, on-score overlay, tuner UI
+src/score.js         OpenSheetMusicDisplay wrapper (load, cursor, sections)
+src/pitch.js         Web Audio + pitchy fundamental-frequency detection
+src/styles.css       Dark theme + responsive layout
+test-files/          Bundled sample scores (auto-loaded by default)
+```
 
-This app stands on the shoulders of two great open-source libraries, loaded at runtime from [esm.sh](https://esm.sh):
+### URL parameters
 
-- **[OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay)** for MusicXML rendering and the practice cursor. Copyright (c) 2019 PhonicScore. Licensed under the [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause) license.
-- **[pitchy](https://github.com/ianprime0509/pitchy)** for autocorrelation-based pitch detection. Copyright Ian Johnson. Licensed under the [0BSD](https://opensource.org/licenses/0BSD) license.
+- `?score=path/to/file.musicxml` &nbsp; Load a different score on page open.
+- `?score=none` &nbsp; Skip the auto-load entirely.
+
+> `?score=` only accepts URLs the browser can fetch over HTTP: repo-relative paths or a public HTTPS URL with CORS. Local filesystem paths (`/Users/...`, `C:\\...`) never work in any browser by design. Use **Load Score** for one-off local files.
+
+### Built with
+
+- [OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) (BSD-3-Clause, © 2019 PhonicScore) for score rendering and the practice cursor
+- [pitchy](https://github.com/ianprime0509/pitchy) (0BSD, © Ian Johnson) for autocorrelation pitch detection
+
+Both are loaded from [esm.sh](https://esm.sh) at runtime, so the project itself has no `node_modules`.
 
 ## License
 
-[MIT](LICENSE) (c) 2026 AqRec
+[MIT](LICENSE) © 2026 AqRec
 
-## Support development
+## Support nerdyBarde
 
-nerdyBarde is free and open-source. If it has helped your practice, a tip in crypto keeps the project alive.
+If this saved you some practice frustration, a small tip keeps the project alive.
 
 | Coin | Address |
 | --- | --- |

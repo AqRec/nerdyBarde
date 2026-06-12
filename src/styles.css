@@ -42,6 +42,39 @@ html, body {
   margin: 0;
   letter-spacing: 0.3px;
 }
+.topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.topbar-repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+.topbar-repo-link:hover,
+.topbar-repo-link:focus-visible {
+  color: var(--text);
+  border-color: var(--border-hover);
+  background: var(--panel-2);
+  outline: none;
+}
+.topbar-repo-link svg { display: block; }
+/* Hide the text on very narrow screens; the GitHub mark + tooltip still convey the link. */
+@media (max-width: 560px) {
+  .topbar-repo-label { display: none; }
+  .topbar-repo-link { padding: 4px 8px; }
+}
 .topbar-actions { display: flex; gap: 8px; }
 
 button, .file-btn {
