@@ -1,4 +1,4 @@
-# nerdyIntonation - an open-source Intonation Trainer
+# nerdyBarde - an open-source Intonation Trainer
 
 An interactive web app that displays music score, listens to your violin through the microphone, and only advances when the current note is played accurately (within a configurable pitch tolerance). 
 
