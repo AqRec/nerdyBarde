@@ -514,6 +514,76 @@ footer {
   text-align: center;
 }
 
+/* ----------------------------- Donation panel ----------------------------- */
+
+.donation-panel { padding: 16px 18px; }
+.donation-heading {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--muted);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.donation-blurb {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.donation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.donation-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.donation-coin {
+  flex: 0 0 48px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  text-align: center;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.donation-addr {
+  /* Override generic button styles: render as a flat, monospaced inline chip. */
+  flex: 1 1 auto;
+  text-align: left;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 1px dashed var(--border-strong);
+  color: var(--text);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.donation-addr:hover {
+  background: #2a3140;
+  border-color: var(--border-hover);
+  border-style: solid;
+}
+.donation-addr.copied {
+  background: rgba(108, 255, 176, 0.18);
+  border-color: var(--good);
+  color: var(--good);
+  font-family: inherit;
+  font-weight: 600;
+}
+
 @media (max-width: 720px) {
   .feedback-grid { grid-template-columns: 1fr; }
   .feedback-card .big-note { font-size: 1.8rem; }

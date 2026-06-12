@@ -142,3 +142,12 @@ This app stands on the shoulders of two great open-source libraries, loaded at r
 ## License
 
 [MIT](LICENSE) (c) 2026 AqRec
+
+## Support development
+
+nerdyBarde is free and open-source. If it has helped your practice, a tip in crypto keeps the project alive.
+
+| Coin | Address |
+| --- | --- |
+| BTC | `bc1qjzpwhp9ck5qpc05auzw6nna3usc97jad559x8l` |
+| XMR | `851XQWiNdA3iZPHY1azmsMEbwUUdx6qbwLYUrgW62EMnbgfJ1RdXmcuCwfYW1fx5EeW6kHbGvynZHeALURQiMhtPPCpcwQN` |
