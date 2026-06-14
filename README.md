@@ -11,7 +11,8 @@
 ## What it does
 
 - **Practice trainer.** Loads a sheet-music file, highlights one note at a time, and only moves to the next one once you've played the current note in tune.
-- **Tuner.** Four big buttons (G · D · A · E) tune the open strings. Or play freely and it tells you what note you're on and how sharp/flat you are.
+- **Tuner.** Four big buttons (G · D · A · E) tune the open strings to **pure, beatless fifths**. Or play freely and it tells you what note you're on and how sharp/flat you are.
+- **Intonation that fits the violin.** Judges pitch with **Pythagorean** (melodic) intonation by default, the tuning that matches the violin's own ringing open strings, with just and equal temperament a click away. Watch which open string your note is *ringing*, the way violinists actually check pitch.
 - **Visual feedback.** A "ghost notehead" floats above the staff at your actual pitch, so you can see at a glance whether you're hitting the target or drifting half a step away.
 
 ## Quick start
@@ -40,6 +41,7 @@ You can flip between modes any time during a session:
 - `→` / `←` &nbsp; Next / previous note
 - `R` &nbsp; Restart current section
 - `M` &nbsp; Toggle microphone
+- `D` &nbsp; Toggle reference drone
 
 ## How strict should the app be?
 
@@ -58,6 +60,49 @@ A suggested ramp as you get better:
 | Performance tempo | ± 5 ¢ | 30 – 60 ms |
 
 The **A4 reference** input is for orchestras tuning to 441/442 Hz or baroque ensembles at 415.
+
+## Intonation: judged the way a violin is
+
+Most tuners score you against **equal temperament (12-TET)**, the compromise tuning a piano is stuck with. A violin isn't: you tune by ear, and the instrument tells you when a note is right through **ringing open strings** and **beatless double stops**. Those reward *pure* intervals, not 12-TET ones. nerdyBarde lets you practice that way.
+
+### Tuning system
+
+Pick one in the toolbar (**Intonation**):
+
+| System | What it does | Reach for it when… |
+| --- | --- | --- |
+| **Pythagorean (melodic)** (*default*) | Pure 3:2 fifths stacked from the tonic. Wide major thirds (+8¢), **high leading tones**. | …practicing scales and shaping expressive solo lines (most of the time) |
+| **Just (harmonic)** | Low-whole-number ratios to the tonic. **Low major thirds (−14¢)**, pure triads. | …chords, double stops, blending in an ensemble |
+| **Equal temperament** | Every semitone is exactly 100¢, matching a piano. | …playing along with a piano or other fixed-pitch instrument |
+
+The same note can sit in very different places. In G major the third (B) is **+8¢** in Pythagorean but **−14¢** in just. That's not an error; it's the difference between a melody that *leads* and a chord that *locks*.
+
+**Why Pythagorean is the default.** A violin's four open strings are themselves a chain of pure fifths (G, D, A, E) that *is* the Pythagorean skeleton. So Pythagorean is the one system that never fights the instrument: the notes that match an open string ring freely, and the strongest sympathetic resonances (octaves, fifths, fourths) line up with it. It's also the standard intonation taught for **melodic** playing and scales, which is most of what you practice here. Switch to **just** when you're working on double stops or chordal passages, and to **equal** only when you must lock to a piano.
+
+### Tuning vs. finger placement (two different things)
+
+Choosing an intonation system **never changes how the open strings are tuned.** There are two separate layers:
+
+1. **Tuning the instrument.** The open strings are *always* pure, beatless fifths (the G·D·A·E buttons). This is physics, not a style: it's how every violin is tuned. (Those pure fifths are the very same 3:2 the Pythagorean system is built from, which is exactly why Pythagorean and the open strings always agree, and why the open strings don't "belong" to any one melodic system: they're the shared foundation underneath all of them.)
+2. **Finger placement.** *Where* you put each finger relative to the key's tonic. This is what the intonation system controls.
+
+A subtle but real consequence: because Pythagorean **is** the open-string framework, its notes agree with the open strings. Just intonation uses pure *thirds*, which can sit slightly off the open-string grid, so advanced players often *avoid* open strings in expressive just-intonation passages, because an open string can't bend to match. The app mirrors this faithfully: the open-string ring is your universal check, while the chosen system only moves your fingered targets.
+
+### Tonic
+
+Pythagorean and just are measured *from the key's tonic*. **Tonic → Auto** reads it from the score's key signature and follows key changes; or pick a note to set it yourself. Equal temperament ignores the tonic.
+
+### Open-string ring
+
+Under the needle, the **Open strings** readout shows which of G · D · A · E your note is making *resonate*, and how close you are to a **beatless lock** (it glows green). This is the violin checking itself, independent of the chosen system. Even the open strings aren't equal-tempered: tuned in pure fifths, the E string sits ~2¢ above its 12-TET pitch, which is why a perfectly *ringing* E can still read "+2¢" on an equal-tempered meter.
+
+### Drone
+
+**Drone** (or press `D`) sounds a soft tonic-and-fifth reference, like a fiddle drone or tanpura. Play against it and listen for the beats to slow and stop: a built-in double stop for training pure intervals by ear.
+
+> **Use headphones for the drone.** The drone is for your *ears*; the microphone is for your *violin*. If the drone plays through speakers, the mic hears it too, and since a tonic-plus-fifth drone is a chord (e.g. G + D + G, a 2:3:4 ratio), its combined waveform's true fundamental sits an octave below the tonic. So the tuner may read **G2** while the drone is rooted on G3. That's the acoustic "missing fundamental," not a bug. Headphones keep the drone out of the mic so it tracks only what you play.
+
+> The pure systems use a single tonic and standard Pythagorean / 5-limit just ratios, so they're a faithful guide for scales and melodies rather than chord-by-chord adaptive tuning. The open-string ring works in any key.
 
 ## Reading the colors
 
@@ -97,9 +142,10 @@ Source layout:
 
 ```
 index.html           UI shell
-src/app.js           State, events, pitch handler, on-score overlay, tuner UI
-src/score.js         OpenSheetMusicDisplay wrapper (load, cursor, sections)
+src/app.js           State, events, pitch handler, on-score overlay, tuner + intonation UI, drone
+src/score.js         OpenSheetMusicDisplay wrapper (load, cursor, sections, per-note key signature)
 src/pitch.js         Web Audio + pitchy fundamental-frequency detection
+src/intonation.js    Tuning systems (ET / Pythagorean / just) + open-string sympathetic resonance
 src/styles.css       Dark theme + responsive layout
 test-files/          Bundled sample scores (auto-loaded by default)
 ```

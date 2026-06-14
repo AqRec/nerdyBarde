@@ -2,6 +2,10 @@
 
 import { Score } from "./score.js";
 import { PitchTracker, freqToNoteInfo, centsFromTarget, freqToMidi, midiToFreq, midiToNoteName } from "./pitch.js";
+import {
+  SYSTEMS, systemTargetFreq, systemCentsOffset, fifthsToTonicPc, pitchClassName,
+  openStringFreq, analyzeResonance, etFreq, centsBetween,
+} from "./intonation.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,6 +30,15 @@ const els = {
   holdTime: $("hold-time"),
   a4Ref: $("a4-ref"),
   resetDefaults: $("reset-defaults"),
+  // Intonation system + drone
+  intonationSystem: $("intonation-system"),
+  intonationTonic: $("intonation-tonic"),
+  droneBtn: $("drone-btn"),
+  // Sympathetic-resonance readout
+  tunerRing: $("tuner-ring"),
+  ringLed: $("ring-led"),
+  ringText: $("ring-text"),
+  ringMeterFill: $("ring-meter-fill"),
   // Section + navigation
   sectionStart: $("section-start"),
   sectionEnd: $("section-end"),
@@ -46,9 +59,16 @@ const els = {
  * The Reset Defaults button restores all of these in one click.
  */
 const DEFAULTS = Object.freeze({
-  tolerance: 10,   // ±cents
-  holdTime: 150,   // ms
-  a4Ref: 440,      // Hz
+  tolerance: 10,        // ±cents
+  holdTime: 150,        // ms
+  a4Ref: 440,           // Hz
+  // Pythagorean is the default because a violin's open strings are a chain of
+  // pure fifths — the Pythagorean skeleton — so it's the intonation that aligns
+  // with the instrument's own sympathetic resonance and the standard choice for
+  // melodic / scale practice (which is what this app is for). Switch to Just for
+  // double stops / ensemble, or Equal when playing along with a piano.
+  intonationSystem: "pythagorean",
+  intonationTonic: "auto",
 });
 
 const state = {
@@ -59,6 +79,7 @@ const state = {
   overlay: null, // detected-pitch overlay element (sibling of the OSMD cursor)
   tuningString: null, // MIDI number when a string-pick is active, else null
   lastValidAt: 0, // performance.now() of the last valid pitch sample
+  drone: null, // { ctx, gain, oscillators:[], pc } while a reference drone sounds
 };
 
 /**
@@ -69,6 +90,169 @@ const state = {
 const VALID_PERSIST_MS = 500;
 
 function setStatus(msg) { els.status.textContent = msg; }
+
+/* -------------------- intonation system, tonic & resonance -------------------- */
+
+function currentSystem() {
+  return (els.intonationSystem && els.intonationSystem.value) || "equal";
+}
+
+/**
+ * The tonic pitch class (0..11) that pure intonation is measured from, or null
+ * when unknown (which makes Pythagorean / just fall back to equal temperament).
+ * "Auto" reads the current score step's key signature; otherwise the user's pick.
+ */
+function currentTonicPc(step) {
+  const sel = els.intonationTonic ? els.intonationTonic.value : "auto";
+  if (sel !== "auto") {
+    const pc = parseInt(sel, 10);
+    return Number.isFinite(pc) ? pc : null;
+  }
+  const fifths = step && typeof step.keyFifths === "number" ? step.keyFifths : null;
+  return fifths == null ? null : fifthsToTonicPc(fifths);
+}
+
+/** Short tag describing the active system + tonic, e.g. "Just · A", or "" for ET. */
+function systemTag(tonicPc) {
+  const sys = SYSTEMS[currentSystem()];
+  if (!sys || !sys.needsTonic) return "";
+  if (tonicPc == null) return `${sys.label} (no key)`;
+  const shortLabel = currentSystem() === "pythagorean" ? "Pyth" : "Just";
+  return `${shortLabel} · ${pitchClassName(tonicPc)}`;
+}
+
+/* ---- Sympathetic-resonance readout (the violin checking itself) ---- */
+
+function clearRing() {
+  if (!els.tunerRing) return;
+  els.tunerRing.classList.remove("ringing", "locked");
+  els.ringText.textContent = "Open strings: —";
+  els.ringMeterFill.style.width = "0%";
+}
+
+function updateRing(pitch, a4) {
+  if (!els.tunerRing) return;
+  const r = analyzeResonance(pitch, a4);
+  if (!r || r.strength < 0.04) {
+    els.tunerRing.classList.remove("ringing", "locked");
+    els.ringText.textContent = "Open strings: (none nearby)";
+    els.ringMeterFill.style.width = "0%";
+    return;
+  }
+  const cents = Math.round(r.cents);
+  els.ringText.textContent = r.locked
+    ? `${r.string} string rings — ${r.interval}, locked`
+    : `${r.string} string · ${r.interval} · ${cents > 0 ? "+" : ""}${cents}¢ ${cents > 0 ? "(lower)" : "(raise)"}`;
+  els.ringMeterFill.style.width = `${Math.round(r.strength * 100)}%`;
+  els.tunerRing.classList.toggle("locked", r.locked);
+  els.tunerRing.classList.add("ringing");
+}
+
+/* ---- Reference drone: a built-in 'double stop' against the tonic ---- */
+
+/**
+ * MIDI note for the drone root: the active tonic realized in the violin's low
+ * range (G3..F#4). Falls back to A when no tonic is known, so the drone is still
+ * a usable open-string reference during free play.
+ */
+function droneRootMidi() {
+  const tonicPc = currentTonicPc(state.score && state.score.currentStep());
+  const pc = tonicPc == null ? 9 /* A */ : tonicPc;
+  let midi = 48 + pc; // octave 3
+  if (midi < 55) midi += 12; // keep it at/above the open G string
+  return midi;
+}
+
+function toggleDrone() {
+  if (state.drone) stopDrone(); else startDrone();
+}
+
+function startDrone() {
+  if (state.drone) return;
+  let ctx;
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch {
+    setStatus("Drone unavailable: this browser has no Web Audio.");
+    return;
+  }
+  // Some browsers create the context suspended until a user gesture; the drone
+  // is started from a click, so resuming here guarantees it actually sounds.
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  const gain = ctx.createGain();
+  gain.gain.value = 0.0;
+  gain.connect(ctx.destination);
+  state.drone = { ctx, gain, oscillators: [], rootMidi: null };
+  updateDroneFrequency(true);
+  // Fade in to avoid a click.
+  const now = ctx.currentTime;
+  gain.gain.setValueAtTime(0.0, now);
+  gain.gain.linearRampToValueAtTime(0.13, now + 0.08);
+  syncDroneButton();
+}
+
+function stopDrone() {
+  const d = state.drone;
+  if (!d) return;
+  state.drone = null;
+  try {
+    const now = d.ctx.currentTime;
+    d.gain.gain.cancelScheduledValues(now);
+    d.gain.gain.setValueAtTime(d.gain.gain.value, now);
+    d.gain.gain.linearRampToValueAtTime(0.0, now + 0.1);
+    d.oscillators.forEach(o => { try { o.stop(now + 0.14); } catch { /* ignore */ } });
+    setTimeout(() => { try { d.ctx.close(); } catch { /* ignore */ } }, 250);
+  } catch { /* ignore */ }
+  syncDroneButton();
+}
+
+/**
+ * Build / rebuild the drone for the current tonic: a low tonic plus its octave
+ * and a pure 3:2 fifth — an open-string-style fiddle drone to tune against.
+ * No-op if the root hasn't changed (unless `force`, e.g. after an A4 change).
+ */
+function updateDroneFrequency(force = false) {
+  const d = state.drone;
+  if (!d) return;
+  const a4 = parseFloat(els.a4Ref.value) || 440;
+  const midi = droneRootMidi();
+  if (!force && d.rootMidi === midi) return;
+  d.rootMidi = midi;
+  const root = etFreq(midi, a4);
+  const partials = [
+    { f: root, gain: 1.0 },          // tonic
+    { f: root * 2, gain: 0.45 },     // octave (adds body)
+    { f: root * 3 / 2, gain: 0.55 }, // pure fifth (the drone fifth)
+  ];
+  d.oscillators.forEach(o => { try { o.stop(); } catch { /* ignore */ } });
+  d.oscillators = [];
+  const now = d.ctx.currentTime;
+  for (const p of partials) {
+    const osc = d.ctx.createOscillator();
+    const g = d.ctx.createGain();
+    osc.type = "sawtooth"; // rich harmonics make beats easy to hear
+    osc.frequency.value = p.f;
+    g.gain.value = p.gain;
+    osc.connect(g);
+    g.connect(d.gain);
+    osc.start(now);
+    d.oscillators.push(osc);
+  }
+}
+
+function syncDroneButton() {
+  if (!els.droneBtn) return;
+  const on = !!state.drone;
+  els.droneBtn.classList.toggle("active", on);
+  els.droneBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  let label = "Drone: off";
+  if (on) {
+    const tonicPc = currentTonicPc(state.score && state.score.currentStep());
+    label = `Drone: ${pitchClassName(tonicPc == null ? 9 : tonicPc)}`;
+  }
+  const long = els.droneBtn.querySelector(".label-long");
+  if (long) long.textContent = label;
+}
 
 /* -------------------- detected-pitch overlay on the score -------------------- */
 
@@ -252,6 +436,7 @@ function setTunerIdle(message) {
 function refreshTargetDisplay() {
   const hasScore = !!state.score && state.score.steps.length > 0;
   const a4 = parseFloat(els.a4Ref.value) || 440;
+  const metaLabel = document.getElementById("tuner-meta-label");
 
   // Tuning a string takes precedence over score practice when both are
   // available, so the user can interrupt a score with the string picker
@@ -259,40 +444,46 @@ function refreshTargetDisplay() {
   // string buttons stay enabled either way so the user can switch modes
   // at any time.
   if (state.tuningString != null) {
+    // String tuning: target the PURE (3:2-chain) open-string frequency, not the
+    // equal-tempered one — beatless fifths are how a violin is actually tuned.
     els.tunerMeta.hidden = false;
-    document.getElementById("tuner-meta-label").textContent = "Tune string";
+    metaLabel.textContent = "Tune string";
     const name = midiToNoteName(state.tuningString);
     const split = splitNoteName(name);
+    const f = openStringFreq(state.tuningString, a4);
     els.targetNote.textContent = split.letter + split.octave;
-    els.targetFreq.textContent = `${midiToFreq(state.tuningString, a4).toFixed(2)} Hz`;
+    els.targetFreq.textContent = `${f.toFixed(2)} Hz · pure 5th`;
     // While tuning, hide the on-score "ghost notehead" — it would otherwise
     // linger from the last sample painted by practice mode.
     hideOverlay();
-    return;
-  }
-
-  if (hasScore) {
+  } else if (hasScore) {
     els.tunerMeta.hidden = false;
-    document.getElementById("tuner-meta-label").textContent = "Target";
+    metaLabel.textContent = "Target";
     const step = state.score.currentStep();
-    if (!step) {
+    if (step) {
+      const tonicPc = currentTonicPc(step);
+      const system = currentSystem();
+      const f = systemTargetFreq(step.midi, { a4, tonicPc, system });
+      const split = splitNoteName(step.name);
+      els.targetNote.textContent = split.letter + split.octave;
+      const tag = systemTag(tonicPc);
+      els.targetFreq.textContent = tag ? `${f.toFixed(2)} Hz · ${tag}` : `${f.toFixed(2)} Hz`;
+      if (state.lastTarget !== step.stepIndex) {
+        state.inTuneSince = null;
+        state.lastTarget = step.stepIndex;
+      }
+    } else {
       els.targetNote.textContent = "—";
       els.targetFreq.textContent = "— Hz";
-      return;
     }
-    const f = midiToFreq(step.midi, a4);
-    const split = splitNoteName(step.name);
-    els.targetNote.textContent = split.letter + split.octave;
-    els.targetFreq.textContent = `${f.toFixed(2)} Hz`;
-    if (state.lastTarget !== step.stepIndex) {
-      state.inTuneSince = null;
-      state.lastTarget = step.stepIndex;
-    }
-    return;
+  } else {
+    // No score, no string: free-running tuner — hide the reference row.
+    els.tunerMeta.hidden = true;
   }
 
-  // No score, no string: free-running tuner — hide the reference row.
-  els.tunerMeta.hidden = true;
+  // Keep the reference drone (and its button label) in sync with the active tonic.
+  if (state.drone) updateDroneFrequency();
+  syncDroneButton();
 }
 
 function selectTuningString(midi) {
@@ -329,6 +520,7 @@ function onPitchSample({ pitch, valid }) {
     const sinceValid = performance.now() - state.lastValidAt;
     if (sinceValid < VALID_PERSIST_MS) return;
     setTunerIdle("Listening…");
+    clearRing();
     state.inTuneSince = null;
     hideOverlay();
     return;
@@ -339,6 +531,9 @@ function onPitchSample({ pitch, valid }) {
   const info = freqToNoteInfo(pitch, a4);
   setTunerNote(info.name);
   els.detectedFreq.textContent = `${pitch.toFixed(2)} Hz`;
+  // The violin-native check: which open string this pitch is ringing. Shown in
+  // every mode, independent of the chosen target system.
+  updateRing(pitch, a4);
 
   if (state.tuningString != null) {
     // String-tuning mode (takes precedence over score practice). Cents are
@@ -346,7 +541,8 @@ function onPitchSample({ pitch, valid }) {
     // suppressed because we're not comparing against the score's target.
     hideOverlay();
     const targetMidi = state.tuningString;
-    const cents = centsFromTarget(pitch, targetMidi, a4);
+    // Measure against the PURE open-string frequency so a beatless 3:2 reads 0¢.
+    const cents = centsBetween(pitch, openStringFreq(targetMidi, a4));
     const semitones = freqToMidi(pitch, a4) - targetMidi;
     const nearby = Math.abs(cents) <= 50;
     setNeedle(cents);
@@ -373,8 +569,10 @@ function onPitchSample({ pitch, valid }) {
   }
 
   if (!step) {
-    // Pure tuner mode: cents from the nearest note.
-    const cents = info.cents;
+    // Pure tuner mode: cents from the nearest note. If a manual tonic + a pure
+    // system are set, measure from that note's pure version instead of 12-TET.
+    const offset = systemCentsOffset(info.midi, currentTonicPc(null), currentSystem());
+    const cents = info.cents - offset;
     setNeedle(cents);
     els.deviationCents.textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(0)} ¢`;
     if (Math.abs(cents) <= tol) {
@@ -394,9 +592,13 @@ function onPitchSample({ pitch, valid }) {
   }
 
   // Practice mode: cents from the current target (not nearest), so the user
-  // sees how far they are from what the score asks for.
-  const cents = centsFromTarget(pitch, step.midi, a4);
-  const semitones = freqToMidi(pitch, a4) - step.midi;
+  // sees how far they are from what the score asks for. The target is shifted by
+  // the active intonation system (Pythagorean / just) relative to the tonic, so
+  // a pure-intonation note reads 0¢ and "in tune" lands on the pure pitch.
+  const tonicPc = currentTonicPc(step);
+  const offsetCents = systemCentsOffset(step.midi, tonicPc, currentSystem());
+  const cents = centsFromTarget(pitch, step.midi, a4) - offsetCents;
+  const semitones = freqToMidi(pitch, a4) - step.midi - offsetCents / 100;
   const nearby = Math.abs(cents) <= 50;
   setNeedle(cents);
   els.deviationCents.textContent = `${cents >= 0 ? "+" : ""}${cents.toFixed(0)} ¢`;
@@ -485,6 +687,7 @@ async function toggleMic() {
     els.micBtn.classList.remove("active");
     hideOverlay();
     setTunerIdle("Idle");
+    clearRing();
     state.lastValidAt = 0;
     setStatus("Microphone stopped.");
     return;
@@ -526,7 +729,23 @@ function wireEvents() {
   });
   els.micBtn.addEventListener("click", toggleMic);
   els.tolerance.addEventListener("input", updateToleranceZone);
-  els.a4Ref.addEventListener("input", refreshTargetDisplay);
+  els.a4Ref.addEventListener("input", () => {
+    if (state.drone) updateDroneFrequency(true);
+    refreshTargetDisplay();
+  });
+
+  // Intonation system + tonic + reference drone.
+  els.intonationSystem.addEventListener("change", () => {
+    state.inTuneSince = null;
+    refreshTargetDisplay();
+    setStatus(`Intonation: ${SYSTEMS[currentSystem()].label}.`);
+  });
+  els.intonationTonic.addEventListener("change", () => {
+    state.inTuneSince = null;
+    if (state.drone) updateDroneFrequency(true);
+    refreshTargetDisplay();
+  });
+  els.droneBtn.addEventListener("click", toggleDrone);
 
   // String-tuner quick-pick buttons.
   document.querySelectorAll(".string-btn").forEach(btn => {
@@ -540,10 +759,13 @@ function wireEvents() {
     els.tolerance.value = DEFAULTS.tolerance;
     els.holdTime.value = DEFAULTS.holdTime;
     els.a4Ref.value = DEFAULTS.a4Ref;
+    els.intonationSystem.value = DEFAULTS.intonationSystem;
+    els.intonationTonic.value = DEFAULTS.intonationTonic;
+    if (state.drone) stopDrone();
     updateToleranceZone();
     refreshTargetDisplay();
     state.inTuneSince = null;
-    setStatus(`Defaults restored: tolerance ±${DEFAULTS.tolerance}¢, hold ${DEFAULTS.holdTime} ms, A4 ${DEFAULTS.a4Ref} Hz.`);
+    setStatus(`Defaults restored: tolerance ±${DEFAULTS.tolerance}¢, hold ${DEFAULTS.holdTime} ms, A4 ${DEFAULTS.a4Ref} Hz, ${SYSTEMS[DEFAULTS.intonationSystem].label}.`);
   });
 
   els.applySection.addEventListener("click", () => {
@@ -596,6 +818,7 @@ function wireEvents() {
     else if (e.key === "ArrowLeft") { els.prevBtn.click(); }
     else if (e.key === "r" || e.key === "R") { els.resetBtn.click(); }
     else if (e.key === "m" || e.key === "M") { els.micBtn.click(); }
+    else if (e.key === "d" || e.key === "D") { toggleDrone(); }
   });
 
   wireLongPressJump();
@@ -676,6 +899,7 @@ function jumpToPointerEvent(e) {
 updateToleranceZone();
 wireEvents();
 wireDonationCopy();
+syncDroneButton();
 setStatus("Load a score, enable the microphone, then play.");
 
 /* ----------------------------- Default score ----------------------------- */

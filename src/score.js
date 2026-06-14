@@ -96,7 +96,14 @@ export class Score {
     const cursor = this.osmd.cursor;
     cursor.reset();
     let safety = 0;
+    // Active key signature (fifths: +sharps / -flats), carried forward across
+    // measures. The MusicXML only declares the key where it *changes*, so we
+    // remember the last one seen and stamp it onto every step. Used downstream
+    // to anchor Pythagorean / just intonation to the piece's tonic.
+    let activeFifths = null;
     while (!cursor.iterator.EndReached && safety < 100000) {
+      const fifths = this._getCurrentKeyFifths(cursor);
+      if (fifths != null) activeFifths = fifths;
       const notes = cursor.NotesUnderCursor();
       const pitched = notes.filter(n => n && n.Pitch);
       if (pitched.length > 0) {
@@ -127,6 +134,9 @@ export class Score {
             // Engraved staff position (letter+octave, ignores accidental).
             // Used to anchor the detected-pitch overlay on the actual notehead.
             diatonicStep,
+            // Key signature in effect here (fifths: +sharps / -flats), or null
+            // if the score declared none. Drives auto-tonic for intonation.
+            keyFifths: activeFifths,
             // Pixel center of the cursor when stopped on this step (offsetParent-relative).
             x: xy ? xy.x : null,
             y: xy ? xy.y : null,
@@ -151,6 +161,22 @@ export class Score {
       }
     } catch { /* ignore */ }
     return 1;
+  }
+
+  /**
+   * Read the key signature (fifths: +sharps / -flats) declared at the start of
+   * the cursor's current measure, or null if this measure doesn't declare one.
+   * OSMD only attaches a KeyInstruction to measures where the key is stated
+   * (the first measure and any change), so callers carry the value forward.
+   */
+  _getCurrentKeyFifths(cursor) {
+    try {
+      const measure = cursor.iterator && cursor.iterator.CurrentMeasure;
+      if (!measure || typeof measure.getKeyInstruction !== "function") return null;
+      const ki = measure.getKeyInstruction(0);
+      if (ki && typeof ki.Key === "number") return ki.Key;
+    } catch { /* ignore */ }
+    return null;
   }
 
   get measureCount() {

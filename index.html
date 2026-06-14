@@ -81,11 +81,48 @@
         </div>
       </div>
 
+      <!-- Sympathetic-resonance readout: which open string (G D A E) the played
+           note is ringing, and how close to a beatless lock. This is the
+           violin-native intonation check — independent of the chosen system. -->
+      <div class="tuner-ring" id="tuner-ring" title="Which open string your note is ringing through sympathetic resonance, and how close you are to a beatless lock.">
+        <span class="ring-led" id="ring-led" aria-hidden="true"></span>
+        <span class="ring-text" id="ring-text">Open strings: —</span>
+        <div class="ring-meter"><div class="ring-meter-fill" id="ring-meter-fill"></div></div>
+      </div>
+
       <!-- Kept for compatibility (id referenced by JS); not visible. -->
       <span id="detected-note" hidden>—</span>
     </section>
 
     <section class="panel controls-panel">
+      <div class="control-group intonation-control">
+        <label title="How 'in tune' is judged. Equal temperament matches a piano. Pythagorean keeps fifths pure and pushes leading tones high (melodic / soloist). Just locks triad consonances — low major thirds — so chords stop beating (harmonic / ensemble)."><span class="label-long">Intonation</span><span class="label-short">Inton</span>
+          <select id="intonation-system">
+            <option value="equal">Equal temperament</option>
+            <option value="pythagorean" selected>Pythagorean (melodic)</option>
+            <option value="just">Just (harmonic)</option>
+          </select>
+        </label>
+        <label title="The tonic that Pythagorean / just targets are measured from. 'Auto' reads the score's key signature; pick a note to override. Ignored for equal temperament."><span class="label-long">Tonic</span><span class="label-short">Tonic</span>
+          <select id="intonation-tonic">
+            <option value="auto" selected>Auto (from key)</option>
+            <option value="0">C</option>
+            <option value="1">C&#9839;/D&#9837;</option>
+            <option value="2">D</option>
+            <option value="3">D&#9839;/E&#9837;</option>
+            <option value="4">E</option>
+            <option value="5">F</option>
+            <option value="6">F&#9839;/G&#9837;</option>
+            <option value="7">G</option>
+            <option value="8">G&#9839;/A&#9837;</option>
+            <option value="9">A</option>
+            <option value="10">A&#9839;/B&#9837;</option>
+            <option value="11">B</option>
+          </select>
+        </label>
+        <button id="drone-btn" aria-pressed="false" title="Sound a soft reference drone on the tonic so you can hear the beats between it and your note — a built-in 'double stop'. Tune until the beating stops."><span class="label-long">Drone: off</span><span class="label-short">Drone</span></button>
+      </div>
+
       <div class="control-group">
         <label title="How far (in cents) the played pitch may deviate from the target and still count as 'in tune'. ±10¢ is a normal player target; loosen it for beginners."><span class="label-long">Tolerance (±cents)</span><span class="label-short">Tol&nbsp;¢</span>
           <input type="number" id="tolerance" min="1" max="50" step="1" value="10" />
