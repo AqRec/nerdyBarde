@@ -458,6 +458,20 @@ main {
   color: #fff;
   box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.25);
 }
+/* Armed: ?drone=1 was in the URL but the browser blocks audio until the user
+   interacts. Pulse to make clear a tap/keypress is needed to start it. */
+#drone-btn.armed {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: drone-armed-pulse 1.1s ease-in-out infinite;
+}
+@keyframes drone-armed-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.0); }
+  50%      { box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.35); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #drone-btn.armed { animation: none; box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.35); }
+}
 
 /* Label text variants used by the floating-bar layout (see below).
    Default (narrow / multi-row): show the verbose label, hide the short one. */

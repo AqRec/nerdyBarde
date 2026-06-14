@@ -80,6 +80,7 @@ const state = {
   tuningString: null, // MIDI number when a string-pick is active, else null
   lastValidAt: 0, // performance.now() of the last valid pitch sample
   drone: null, // { ctx, gain, oscillators:[], pc } while a reference drone sounds
+  pendingDroneFromUrl: false, // ?drone=1 seen, waiting for a user gesture to start
 };
 
 /**
@@ -189,6 +190,7 @@ function startDrone() {
   gain.gain.setValueAtTime(0.0, now);
   gain.gain.linearRampToValueAtTime(0.13, now + 0.08);
   syncDroneButton();
+  updateUrl();
 }
 
 function stopDrone() {
@@ -204,6 +206,7 @@ function stopDrone() {
     setTimeout(() => { try { d.ctx.close(); } catch { /* ignore */ } }, 250);
   } catch { /* ignore */ }
   syncDroneButton();
+  updateUrl();
 }
 
 /**
@@ -243,15 +246,26 @@ function updateDroneFrequency(force = false) {
 function syncDroneButton() {
   if (!els.droneBtn) return;
   const on = !!state.drone;
+  // "Armed": ?drone=1 was in the URL but audio can't start until the user
+  // interacts (browser autoplay policy). Show this on the button itself so the
+  // cue survives the async score-load status message overwriting the footer.
+  const armed = !on && state.pendingDroneFromUrl;
   els.droneBtn.classList.toggle("active", on);
+  els.droneBtn.classList.toggle("armed", armed);
   els.droneBtn.setAttribute("aria-pressed", on ? "true" : "false");
   let label = "Drone: off";
+  let shortLabel = "Drone";
   if (on) {
     const tonicPc = currentTonicPc(state.score && state.score.currentStep());
     label = `Drone: ${pitchClassName(tonicPc == null ? 9 : tonicPc)}`;
+  } else if (armed) {
+    label = "Drone: tap to start";
+    shortLabel = "Drone \u25B6";
   }
   const long = els.droneBtn.querySelector(".label-long");
   if (long) long.textContent = label;
+  const short = els.droneBtn.querySelector(".label-short");
+  if (short) short.textContent = shortLabel;
 }
 
 /* -------------------- detected-pitch overlay on the score -------------------- */
@@ -666,10 +680,15 @@ async function handleFileLoad(file) {
     }
     await state.score.loadFile(file);
     const total = state.score.measureCount;
-    els.sectionStart.value = 1;
     els.sectionStart.max = total;
-    els.sectionEnd.value = total;
     els.sectionEnd.max = total;
+    // Respect a section given in the URL (?from/?to) so a bookmarked or shared
+    // range survives loading (or reloading) a score. Only fall back to the whole
+    // score when the URL doesn't specify one.
+    if (!applyUrlSection()) {
+      els.sectionStart.value = 1;
+      els.sectionEnd.value = total;
+    }
     refreshTargetDisplay();
     setStatus(`Loaded ${file.name} (${state.score.steps.length} notes, ${total} measures).`);
   } catch (err) {
@@ -728,22 +747,26 @@ function wireEvents() {
     e.target.value = "";
   });
   els.micBtn.addEventListener("click", toggleMic);
-  els.tolerance.addEventListener("input", updateToleranceZone);
+  els.tolerance.addEventListener("input", () => { updateToleranceZone(); updateUrl(); });
+  els.holdTime.addEventListener("input", updateUrl);
   els.a4Ref.addEventListener("input", () => {
     if (state.drone) updateDroneFrequency(true);
     refreshTargetDisplay();
+    updateUrl();
   });
 
   // Intonation system + tonic + reference drone.
   els.intonationSystem.addEventListener("change", () => {
     state.inTuneSince = null;
     refreshTargetDisplay();
+    updateUrl();
     setStatus(`Intonation: ${SYSTEMS[currentSystem()].label}.`);
   });
   els.intonationTonic.addEventListener("change", () => {
     state.inTuneSince = null;
     if (state.drone) updateDroneFrequency(true);
     refreshTargetDisplay();
+    updateUrl();
   });
   els.droneBtn.addEventListener("click", toggleDrone);
 
@@ -762,9 +785,11 @@ function wireEvents() {
     els.intonationSystem.value = DEFAULTS.intonationSystem;
     els.intonationTonic.value = DEFAULTS.intonationTonic;
     if (state.drone) stopDrone();
+    state.pendingDroneFromUrl = false;
     updateToleranceZone();
     refreshTargetDisplay();
     state.inTuneSince = null;
+    updateUrl();
     setStatus(`Defaults restored: tolerance ±${DEFAULTS.tolerance}¢, hold ${DEFAULTS.holdTime} ms, A4 ${DEFAULTS.a4Ref} Hz, ${SYSTEMS[DEFAULTS.intonationSystem].label}.`);
   });
 
@@ -776,6 +801,7 @@ function wireEvents() {
     els.sectionStart.value = applied.startMeasure;
     els.sectionEnd.value = applied.endMeasure;
     refreshTargetDisplay();
+    updateUrl();
     setStatus(`Section set: measures ${applied.startMeasure}–${applied.endMeasure}.`);
   });
   els.clearSection.addEventListener("click", () => {
@@ -784,6 +810,7 @@ function wireEvents() {
     els.sectionStart.value = 1;
     els.sectionEnd.value = state.score.measureCount;
     refreshTargetDisplay();
+    updateUrl();
     setStatus("Section cleared (full score).");
   });
 
@@ -896,11 +923,128 @@ function jumpToPointerEvent(e) {
   if (step) setStatus(`Jumped to ${step.name} (measure ${step.measureNumber}).`);
 }
 
+/* ----------------------- URL <-> settings sync ----------------------- */
+//
+// Reflect the toolbar settings in the query string as they change, and restore
+// them when the page opens with those params, so a configured setup can be
+// bookmarked or shared. Only NON-default values are written, so a fresh setup
+// keeps a clean URL. The `score` param (handled separately) and any unrelated
+// params are preserved.
+
+const URL_DEFAULTS = {
+  system: DEFAULTS.intonationSystem,
+  tonic: DEFAULTS.intonationTonic,
+  tol: String(DEFAULTS.tolerance),
+  hold: String(DEFAULTS.holdTime),
+  a4: String(DEFAULTS.a4Ref),
+};
+
+/** Apply ?system / ?tonic / ?tol / ?hold / ?a4 to the controls (called on load). */
+function applySettingsFromUrl() {
+  const p = new URLSearchParams(location.search);
+
+  const system = p.get("system");
+  if (system && SYSTEMS[system]) els.intonationSystem.value = system;
+
+  const tonic = p.get("tonic");
+  if (tonic === "auto" || (tonic != null && /^\d+$/.test(tonic) && +tonic >= 0 && +tonic <= 11)) {
+    els.intonationTonic.value = tonic;
+  }
+
+  const tol = p.get("tol");
+  if (tol != null && Number.isFinite(parseFloat(tol))) els.tolerance.value = clamp(parseFloat(tol), 1, 50);
+
+  const hold = p.get("hold");
+  if (hold != null && Number.isFinite(parseFloat(hold))) els.holdTime.value = clamp(parseFloat(hold), 0, 5000);
+
+  const a4 = p.get("a4");
+  if (a4 != null && Number.isFinite(parseFloat(a4))) els.a4Ref.value = clamp(parseFloat(a4), 415, 466);
+}
+
+/** Write the current settings back into the URL (replaceState, no reload). */
+function updateUrl() {
+  const p = new URLSearchParams(location.search);
+  const setOrClear = (key, value, def) => {
+    if (value == null || value === "" || String(value) === String(def)) p.delete(key);
+    else p.set(key, String(value));
+  };
+
+  setOrClear("system", els.intonationSystem.value, URL_DEFAULTS.system);
+  setOrClear("tonic", els.intonationTonic.value, URL_DEFAULTS.tonic);
+  setOrClear("tol", els.tolerance.value, URL_DEFAULTS.tol);
+  setOrClear("hold", els.holdTime.value, URL_DEFAULTS.hold);
+  setOrClear("a4", els.a4Ref.value, URL_DEFAULTS.a4);
+
+  if (state.drone || state.pendingDroneFromUrl) p.set("drone", "1"); else p.delete("drone");
+
+  // Section: only when narrower than the whole score (else it's the default).
+  const total = state.score ? state.score.measureCount : 0;
+  const from = parseInt(els.sectionStart.value, 10);
+  const to = parseInt(els.sectionEnd.value, 10);
+  if (total > 0 && Number.isFinite(from) && Number.isFinite(to) && (from > 1 || to < total)) {
+    p.set("from", String(from));
+    p.set("to", String(to));
+  } else {
+    p.delete("from");
+    p.delete("to");
+  }
+
+  const qs = p.toString();
+  history.replaceState(null, "", `${location.pathname}${qs ? "?" + qs : ""}${location.hash}`);
+}
+
+/** Apply ?from / ?to once a score is loaded (measure numbers are score-specific).
+ *  Returns true if the URL specified a section that was applied, false otherwise. */
+function applyUrlSection() {
+  if (!state.score) return false;
+  const p = new URLSearchParams(location.search);
+  const fromRaw = p.get("from");
+  const toRaw = p.get("to");
+  if (fromRaw == null && toRaw == null) return false;
+  const total = state.score.measureCount;
+  const from = parseInt(fromRaw, 10);
+  const to = parseInt(toRaw, 10);
+  const s = Number.isFinite(from) ? from : 1;
+  const e = Number.isFinite(to) ? to : total;
+  const applied = state.score.setSection(s, e);
+  els.sectionStart.value = applied.startMeasure;
+  els.sectionEnd.value = applied.endMeasure;
+  refreshTargetDisplay();
+  updateUrl(); // normalize to the actually-applied (clamped) values
+  return true;
+}
+
+/** Arm the drone if ?drone=1; actual audio waits for the first user gesture
+ *  (browsers block audio until the user interacts with the page). */
+function applyUrlDrone() {
+  const p = new URLSearchParams(location.search);
+  if (p.get("drone") !== "1" || state.drone) return;
+  state.pendingDroneFromUrl = true;
+  syncDroneButton(); // show the "armed / tap to start" cue on the button
+  const start = (e) => {
+    // If the first gesture is itself a drone toggle (button or 'D'), let that
+    // handler start it instead of double-triggering.
+    const isDroneToggle =
+      (e.target && e.target.closest && e.target.closest("#drone-btn")) ||
+      (e.type === "keydown" && (e.key === "d" || e.key === "D"));
+    window.removeEventListener("pointerdown", start, true);
+    window.removeEventListener("keydown", start, true);
+    if (!isDroneToggle && !state.drone) startDrone();
+    state.pendingDroneFromUrl = false;
+    syncDroneButton(); // clear the armed cue once resolved
+  };
+  window.addEventListener("pointerdown", start, true);
+  window.addEventListener("keydown", start, true);
+  setStatus("Drone armed from your URL. Click anywhere (or press D) to start it.");
+}
+
+applySettingsFromUrl();
 updateToleranceZone();
 wireEvents();
 wireDonationCopy();
 syncDroneButton();
 setStatus("Load a score, enable the microphone, then play.");
+applyUrlDrone();
 
 /* ----------------------------- Default score ----------------------------- */
 

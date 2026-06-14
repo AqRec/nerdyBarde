@@ -120,7 +120,7 @@ The big detected-note panel and the on-staff "ghost notehead" share one color co
 
 - **Single notes only.** If the music has double-stops or chords, only the highest note in each chord is checked. Single-line violin parts work best.
 - **Treble clef only.** The on-staff ghost notehead assumes treble clef (which is what violin uses).
-- **Settings don't persist** between visits; they reset to defaults each time you reload.
+- **Settings live in the URL, not the browser.** Your toolbar choices are mirrored in the address bar (see [URL parameters](#url-parameters)), so a reload keeps them and you can bookmark or share a configured setup. Open the plain page with no parameters for a clean default start.
 - **No metronome.** This tool measures pitch, not rhythm. It won't complain if you play slowly, as long as the notes are in tune.
 - **Privacy:** all audio and score processing happens in your browser. **Nothing is uploaded anywhere.** You can disconnect from the internet after loading the page and it still works.
 
@@ -152,8 +152,19 @@ test-files/          Bundled sample scores (auto-loaded by default)
 
 ### URL parameters
 
-- `?score=path/to/file.musicxml` &nbsp; Load a different score on page open.
+Every toolbar setting is mirrored in the address bar as you change it, so you can bookmark or share a fully configured setup. Open the page with any of these and the controls start there:
+
+- `?score=path/to/file.musicxml` &nbsp; Load a different score on page open. Must be a repo-relative path or a public HTTPS URL, **not** a local file path (see the note below).
 - `?score=none` &nbsp; Skip the auto-load entirely.
+- `?system=pythagorean|just|equal` &nbsp; Intonation system.
+- `?tonic=auto|0..11` &nbsp; Tonic for the pure systems (`0`=C, `1`=C&#9839;/D&#9837;, … `11`=B; `auto` reads the score's key signature).
+- `?tol=10` &nbsp; Tolerance in cents (1 to 50).
+- `?hold=150` &nbsp; Hold time in milliseconds.
+- `?a4=440` &nbsp; A4 reference in Hz (415 to 466).
+- `?from=5&to=12` &nbsp; Practice section as a measure range (applied once the score loads).
+- `?drone=1` &nbsp; Arm the reference drone. It starts on your first click or keypress, since browsers block audio until you interact with the page.
+
+Only values that differ from the defaults appear in the URL, so a fresh setup stays clean. Combine them freely, for example `?system=just&tonic=2&tol=5&from=9&to=16`.
 
 > `?score=` only accepts URLs the browser can fetch over HTTP: repo-relative paths or a public HTTPS URL with CORS. Local filesystem paths (`/Users/...`, `C:\\...`) never work in any browser by design. Use **Load Score** for one-off local files.
 
